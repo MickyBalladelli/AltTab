@@ -121,6 +121,19 @@ final class WindowCatalog {
             }
         }
 
+        guard !representatives.isEmpty else {
+            guard let window = windows.first else { return [] }
+            return [SwitcherItem(
+                identifier: "space:current",
+                title: "Current Space",
+                subtitle: "Desktop",
+                app: window.app,
+                window: window,
+                icon: NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Space") ?? window.icon,
+                kind: .spaces
+            )]
+        }
+
         return representatives.keys.sorted().enumerated().compactMap { index, workspaceID in
             guard let window = representatives[workspaceID] else { return nil }
             return SwitcherItem(

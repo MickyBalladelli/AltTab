@@ -10,7 +10,12 @@ struct SwitcherItem {
     let kind: SwitcherContentMode
 
     var thumbnail: NSImage? {
-        window?.thumbnail
+        switch kind {
+        case .windows, .fullScreenApps:
+            return window?.thumbnail
+        case .applications, .spaces, .mixed:
+            return nil
+        }
     }
 
     func activate() {
