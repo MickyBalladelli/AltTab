@@ -9,6 +9,10 @@ enum MRUStore {
     }
 
     static func order(_ items: [SwitcherItem]) -> [SwitcherItem] {
+        ordered(items, savedIdentifiers: savedIdentifiers)
+    }
+
+    static func ordered(_ items: [SwitcherItem], savedIdentifiers: [String]) -> [SwitcherItem] {
         let itemByIdentifier = Dictionary(uniqueKeysWithValues: items.map { ($0.identifier, $0) })
         let saved = savedIdentifiers.compactMap { itemByIdentifier[$0] }
         let savedSet = Set(saved.map(\.identifier))

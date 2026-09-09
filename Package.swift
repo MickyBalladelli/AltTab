@@ -11,6 +11,11 @@ let package = Package(
         .executableTarget(
             name: "AltTab",
             path: "Sources/AltTab"
+        ),
+        .testTarget(
+            name: "AltTabTests",
+            dependencies: ["AltTab"],
+            path: "Tests/AltTabTests"
         )
     ]
 )
