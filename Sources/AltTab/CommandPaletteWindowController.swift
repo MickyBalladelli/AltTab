@@ -1,6 +1,6 @@
 import AppKit
 
-final class CommandPaletteWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate {
+final class CommandPaletteWindowController: NSWindowController, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
     private struct Command {
         let title: String
         let detail: String
@@ -13,6 +13,7 @@ final class CommandPaletteWindowController: NSWindowController, NSTableViewDataS
     private var filteredCommands: [Command] = []
     private var localMonitor: Any?
     private var windowLoadGeneration = 0
+    private let focusRestorer = WindowFocusRestorer()
 
     convenience init() {
         let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 620, height: 410), styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
@@ -20,6 +21,7 @@ final class CommandPaletteWindowController: NSWindowController, NSTableViewDataS
         window.level = .floating
         window.center()
         self.init(window: window)
+        window.delegate = self
         buildControls()
     }
 
@@ -28,12 +30,14 @@ final class CommandPaletteWindowController: NSWindowController, NSTableViewDataS
     }
 
     func show(showSwitcher: @escaping () -> Void = { }, showSettings: @escaping () -> Void = { }) {
+        focusRestorer.capture()
         rebuildCommands(showSwitcher: showSwitcher, showSettings: showSettings)
         window?.center()
         super.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
         searchField.stringValue = ""
         filterCommands()
+        window?.recalculateKeyViewLoop()
         window?.makeFirstResponder(searchField)
         installKeyboardMonitor()
     }
@@ -164,6 +168,9 @@ final class CommandPaletteWindowController: NSWindowController, NSTableViewDataS
             case 125:
                 self.moveSelection(by: 1)
                 return nil
+            case 48:
+                self.moveSelection(by: event.modifierFlags.contains(.shift) ? -1 : 1)
+                return nil
             case 36, 76:
                 self.runSelected()
                 return nil
@@ -220,5 +227,10 @@ final class CommandPaletteWindowController: NSWindowController, NSTableViewDataS
 
     deinit {
         removeKeyboardMonitor()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        removeKeyboardMonitor()
+        focusRestorer.restore()
     }
 }

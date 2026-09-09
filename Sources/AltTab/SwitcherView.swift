@@ -24,6 +24,7 @@ final class SwitcherView: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        setAccessibilityElement(true)
         setAccessibilityRole(.list)
         setAccessibilityLabel("AltTab window switcher")
         setAccessibilityValue("No search filter")
@@ -31,6 +32,7 @@ final class SwitcherView: NSView {
 
     required init?(coder: NSCoder) {
         super.init(coder: coder)
+        setAccessibilityElement(true)
         setAccessibilityRole(.list)
         setAccessibilityLabel("AltTab window switcher")
     }
@@ -146,6 +148,24 @@ final class SwitcherView: NSView {
         onContextMenu?(index)?.popUp(positioning: nil, at: point, in: self)
     }
 
+    var accessibilityChildren: [Any]? {
+        items.enumerated().map { index, item in
+            let element = NSAccessibilityElement()
+            element.setAccessibilityRole(.button)
+            element.setAccessibilityLabel(item.title)
+            element.setAccessibilityParent(self)
+            element.setAccessibilityFrameInParentSpace(cardRect(for: index))
+            let appName = item.app?.localizedName ?? item.subtitle
+            let selected = index == selectedIndex ? "Selected" : "Not selected"
+            let keyboardHint = index < 9 ? "Press \(index + 1) to select" : "Use arrow keys to select"
+            element.setAccessibilityValue("\(appName). \(item.subtitle). \(selected). \(keyboardHint)")
+            element.setAccessibilityHelp("Press Return to switch to this item.")
+            element.setAccessibilityIdentifier(item.identifier)
+            element.setAccessibilitySelected(index == selectedIndex)
+            return element
+        }
+    }
+
     private static var cardWidth: CGFloat {
         max(minimumCardWidth, CGFloat(SettingsStore.thumbnailSize) + 42)
     }
@@ -203,6 +223,25 @@ final class SwitcherView: NSView {
         let cardStart = startX + CGFloat(position) * (Self.cardWidth + Self.cardGap)
         guard point.x >= cardStart, point.x <= cardStart + Self.cardWidth else { return nil }
         return range.lowerBound + position
+    }
+
+    private func cardRect(for index: Int) -> NSRect {
+        let range = visibleRange()
+        let position = range.contains(index) ? index - range.lowerBound : 0
+        let totalWidth = CGFloat(range.count) * Self.cardWidth + CGFloat(max(0, range.count - 1)) * Self.cardGap
+        let startX = (bounds.width - totalWidth) / 2
+        return NSRect(
+            x: startX + CGFloat(position) * (Self.cardWidth + Self.cardGap),
+            y: 34,
+            width: Self.cardWidth,
+            height: Self.cardHeight
+        )
+    }
+
+    private func accessibilityFrame(for index: Int) -> NSRect {
+        guard let window else { return .zero }
+        let windowRect = convert(cardRect(for: index), to: nil)
+        return window.convertToScreen(windowRect)
     }
 
     private func centeredParagraphStyle() -> NSParagraphStyle {

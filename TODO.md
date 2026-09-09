@@ -62,10 +62,10 @@
 - [x] (P2) Add launch-at-login and an option to reopen the last switcher mode.
 
 ### Accessibility and settings
-- [ ] (P0) Expose every switcher card as a VoiceOver element with title, app, selected state, and keyboard hint.
-- [ ] (P1) Add full keyboard navigation and focus restoration to Settings, Diagnostics, and the Command Palette.
-- [ ] (P1) Add settings export/import for all preferences, not only F1-F12 bindings.
-- [ ] (P2) Add per-app profiles for content mode, filters, and appearance.
+- [x] (P0) Expose every switcher card as a VoiceOver element with title, app, selected state, and keyboard hint.
+- [x] (P1) Add full keyboard navigation and focus restoration to Settings, Diagnostics, and the Command Palette.
+- [x] (P1) Add settings export/import for all preferences, not only F1-F12 bindings.
+- [x] (P2) Add per-app profiles for content mode, filters, and appearance.
 
 ### Release and maintenance
 - [ ] (P1) Add an opt-in automatic update download after signature and notarization verification.

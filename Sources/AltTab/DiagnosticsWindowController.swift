@@ -1,26 +1,40 @@
 import AppKit
 
-final class DiagnosticsWindowController: NSWindowController {
+final class DiagnosticsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = DiagnosticsWindowController()
+    private let focusRestorer = WindowFocusRestorer()
 
     convenience init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 520), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "AltTab Diagnostics & Permissions"
         window.center()
         self.init(window: window)
+        window.delegate = self
         window.contentView = DiagnosticsView(frame: window.contentView!.bounds)
     }
 
     override func showWindow(_ sender: Any?) {
+        focusRestorer.capture()
         window?.center()
         super.showWindow(sender)
         NSApp.activate(ignoringOtherApps: true)
+        if let contentView = window?.contentView as? DiagnosticsView {
+            window?.recalculateKeyViewLoop()
+            window?.makeFirstResponder(contentView.initialFirstResponder)
+        }
         (window?.contentView as? DiagnosticsView)?.refresh()
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        focusRestorer.restore()
     }
 }
 
 final class DiagnosticsView: NSView {
     private let detailsLabel = NSTextField(labelWithString: "")
+    private let permissionButton = NSButton(title: "Open Accessibility Settings", target: nil, action: nil)
+
+    var initialFirstResponder: NSView { permissionButton }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -54,7 +68,8 @@ final class DiagnosticsView: NSView {
         detailsLabel.autoresizingMask = [.width, .height]
         addSubview(detailsLabel)
 
-        let permissionButton = NSButton(title: "Open Accessibility Settings", target: self, action: #selector(openAccessibilitySettings))
+        permissionButton.target = self
+        permissionButton.action = #selector(openAccessibilitySettings)
         permissionButton.bezelStyle = .rounded
         permissionButton.frame = NSRect(x: 30, y: 58, width: 190, height: 28)
         permissionButton.autoresizingMask = [.minYMargin]

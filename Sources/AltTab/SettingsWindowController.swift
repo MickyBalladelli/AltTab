@@ -1,20 +1,31 @@
 import AppKit
 
-final class SettingsWindowController: NSWindowController {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     static let shared = SettingsWindowController()
+    private let focusRestorer = WindowFocusRestorer()
 
     convenience init() {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 840), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "AltTab Settings"
         window.center()
         self.init(window: window)
+        window.delegate = self
         window.contentView = SettingsView(frame: window.contentView!.bounds)
     }
 
     override func showWindow(_ sender: Any?) {
+        focusRestorer.capture()
         window?.center()
         super.showWindow(sender)
         NSApp.activate(ignoringOtherApps: true)
+        if let contentView = window?.contentView as? SettingsView {
+            window?.recalculateKeyViewLoop()
+            window?.makeFirstResponder(contentView.initialFirstResponder)
+        }
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        focusRestorer.restore()
     }
 }
 
@@ -39,6 +50,8 @@ final class SettingsView: NSView {
     private let holdToPreviewCheckbox = NSButton(checkboxWithTitle: "Hold activation key to preview, release to switch", target: nil, action: nil)
     private let excludedAppsField = NSTextField(string: "")
     private let permissionStatusLabel = NSTextField(labelWithString: "")
+
+    var initialFirstResponder: NSView { contentPopup }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)

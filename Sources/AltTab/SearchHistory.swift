@@ -15,4 +15,11 @@ enum SearchHistoryStore {
         let existing = terms.filter { $0.caseInsensitiveCompare(term) != .orderedSame }
         UserDefaults.standard.set(Array(([term] + existing).prefix(maximumEntries)), forKey: key)
     }
+
+    static func replace(with terms: [String]) {
+        let cleaned = terms
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        UserDefaults.standard.set(Array(cleaned.prefix(maximumEntries)), forKey: key)
+    }
 }

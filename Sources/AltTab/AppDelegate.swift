@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let switcher = SwitcherController()
@@ -41,6 +42,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Window Action Shortcuts...", action: #selector(showWindowActionShortcuts), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Workflow Settings...", action: #selector(showWorkflowSettings), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "App Profiles...", action: #selector(showAppProfiles), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Export Settings...", action: #selector(exportSettings), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Import Settings...", action: #selector(importSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Diagnostics & Permissions...", action: #selector(showDiagnostics), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quit AltTab", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -188,6 +192,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func showSettings() { SettingsWindowController.shared.showWindow(nil) }
     @objc private func showWindowActionShortcuts() { WindowActionShortcutsWindowController.shared.showWindow(nil) }
     @objc private func showWorkflowSettings() { WorkflowSettingsWindowController.shared.showWindow(nil) }
+    @objc private func showAppProfiles() { AppProfilesWindowController.shared.showWindow(nil) }
+    @objc private func exportSettings() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "AltTab-settings.json"
+        panel.allowedContentTypes = [.json]
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try SettingsStore.exportPreferences().write(to: url, options: .atomic)
+        } catch {
+            showSettingsError(error.localizedDescription)
+        }
+    }
+    @objc private func importSettings() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try SettingsStore.importPreferences(Data(contentsOf: url))
+        } catch {
+            showSettingsError(error.localizedDescription)
+        }
+    }
     @objc private func checkForUpdates() { UpdateController.shared.checkForUpdates() }
     @objc private func showCommandPalette() {
         commandPalette.show(
@@ -214,6 +242,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = "Window is no longer available"
         alert.informativeText = "The window may have closed or moved while AltTab was open."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func showSettingsError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Settings backup failed"
+        alert.informativeText = message
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         alert.runModal()
@@ -402,6 +439,7 @@ final class SwitcherController {
     private var loading = false
     private var holdToPreviewSession = false
     private var recentSearchIndex: Int?
+    private var settingsBeforeAppProfile: AppProfile?
     var isVisible: Bool { state.isVisible }
     var isLoading: Bool { loading }
     var isActive: Bool { isVisible || isLoading }
@@ -413,7 +451,13 @@ final class SwitcherController {
 
     func begin() {
         SettingsStore.registerDefaults()
-        let mode = SettingsStore.modeForNextSwitcher
+        restoreAppProfile()
+        let appProfile = frontmostAppProfile()
+        if let appProfile {
+            settingsBeforeAppProfile = SettingsStore.profileSnapshot()
+            SettingsStore.apply(appProfile)
+        }
+        let mode = appProfile == nil ? SettingsStore.modeForNextSwitcher : SettingsStore.contentMode
         loadGeneration += 1
         let generation = loadGeneration
         loading = true
@@ -425,10 +469,13 @@ final class SwitcherController {
             let orderedItems = MRUStore.order(loadedItems)
             guard self.state.begin(items: orderedItems) else {
                 self.panel?.orderOut(nil)
+                self.restoreAppProfile()
                 self.syncView()
                 return
             }
-            SettingsStore.lastMode = mode
+            if appProfile == nil {
+                SettingsStore.lastMode = mode
+            }
             if self.panel == nil { self.createPanel() }
             self.updatePanelAppearance()
             self.updatePanelLayout()
@@ -545,6 +592,7 @@ final class SwitcherController {
         MRUStore.record(item)
         SearchHistoryStore.record(query)
         state.cancel()
+        restoreAppProfile()
         syncView()
         panel?.orderOut(nil)
     }
@@ -554,6 +602,7 @@ final class SwitcherController {
         loading = false
         holdToPreviewSession = false
         state.cancel()
+        restoreAppProfile()
         panel?.orderOut(nil)
         syncView()
     }
@@ -630,6 +679,20 @@ final class SwitcherController {
         view?.searchQuery = searchQuery
         view?.selectedIndex = selectedIndex
         view?.recentSearchTerms = SearchHistoryStore.terms
+    }
+
+    private func frontmostAppProfile() -> AppProfile? {
+        let currentProcessIdentifier = NSRunningApplication.current.processIdentifier
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier != currentProcessIdentifier,
+              let bundleIdentifier = app.bundleIdentifier else { return nil }
+        return AppProfileStore.profile(for: bundleIdentifier)
+    }
+
+    private func restoreAppProfile() {
+        guard let settingsBeforeAppProfile else { return }
+        SettingsStore.apply(settingsBeforeAppProfile)
+        self.settingsBeforeAppProfile = nil
     }
 
     private func contextMenu(for index: Int) -> NSMenu? {

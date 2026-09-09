@@ -1,5 +1,31 @@
 import Foundation
 
+struct SettingsBackup: Codable {
+    let version: Int
+    let showUtilityWindows: Bool
+    let showMinimizedWindows: Bool
+    let excludedBundleIdentifiers: [String]
+    let contentMode: String
+    let thumbnailSize: Double
+    let iconSize: Double
+    let columns: Int
+    let showLabels: Bool
+    let cornerRadius: Double
+    let opacity: Double
+    let accentColorHex: String
+    let backgroundBlur: Bool
+    let onlyCurrentDisplay: Bool
+    let activationShortcut: String
+    let holdToPreview: Bool
+    let rememberLastMode: Bool
+    let lastMode: String?
+    let windowActionShortcuts: [String: WindowActionShortcut]
+    let quickSlotBindings: Data
+    let recentSearchTerms: [String]
+    let appProfiles: [String: AppProfile]
+    let launchAtLogin: Bool
+}
+
 enum SettingsStore {
     static let showUtilityWindowsKey = "AltTab.filters.showUtilityWindows"
     static let showMinimizedWindowsKey = "AltTab.filters.showMinimizedWindows"
@@ -179,5 +205,107 @@ enum SettingsStore {
             }
         }
         return nil
+    }
+
+    static func profileSnapshot() -> AppProfile {
+        AppProfile(
+            contentMode: contentMode.rawValue,
+            showUtilityWindows: showUtilityWindows,
+            showMinimizedWindows: showMinimizedWindows,
+            onlyCurrentDisplay: onlyCurrentDisplay,
+            excludedBundleIdentifiers: excludedBundleIdentifiers.sorted(),
+            thumbnailSize: thumbnailSize,
+            iconSize: iconSize,
+            columns: columns,
+            showLabels: showLabels,
+            cornerRadius: cornerRadius,
+            opacity: opacity,
+            accentColorHex: accentColorHex,
+            backgroundBlur: backgroundBlur
+        )
+    }
+
+    static func apply(_ profile: AppProfile) {
+        contentMode = profile.resolvedContentMode
+        showUtilityWindows = profile.showUtilityWindows
+        showMinimizedWindows = profile.showMinimizedWindows
+        onlyCurrentDisplay = profile.onlyCurrentDisplay
+        setExcludedBundleIdentifiers(profile.excludedBundleIdentifiers.joined(separator: ","))
+        thumbnailSize = profile.thumbnailSize
+        iconSize = profile.iconSize
+        columns = profile.columns
+        showLabels = profile.showLabels
+        cornerRadius = profile.cornerRadius
+        opacity = profile.opacity
+        accentColorHex = profile.accentColorHex
+        backgroundBlur = profile.backgroundBlur
+    }
+
+    static func exportPreferences() throws -> Data {
+        var actionShortcuts: [String: WindowActionShortcut] = [:]
+        for action in WindowAction.allCases {
+            actionShortcuts[action.rawValue] = windowActionShortcut(for: action)
+        }
+        return try JSONEncoder().encode(SettingsBackup(
+            version: 1,
+            showUtilityWindows: showUtilityWindows,
+            showMinimizedWindows: showMinimizedWindows,
+            excludedBundleIdentifiers: excludedBundleIdentifiers.sorted(),
+            contentMode: contentMode.rawValue,
+            thumbnailSize: thumbnailSize,
+            iconSize: iconSize,
+            columns: columns,
+            showLabels: showLabels,
+            cornerRadius: cornerRadius,
+            opacity: opacity,
+            accentColorHex: accentColorHex,
+            backgroundBlur: backgroundBlur,
+            onlyCurrentDisplay: onlyCurrentDisplay,
+            activationShortcut: activationShortcut.rawValue,
+            holdToPreview: holdToPreview,
+            rememberLastMode: rememberLastMode,
+            lastMode: lastMode?.rawValue,
+            windowActionShortcuts: actionShortcuts,
+            quickSlotBindings: try ShortcutStore.exportBindings(),
+            recentSearchTerms: SearchHistoryStore.terms,
+            appProfiles: AppProfileStore.allProfiles,
+            launchAtLogin: LaunchAtLoginStore.isEnabled
+        ))
+    }
+
+    static func importPreferences(_ data: Data) throws {
+        let backup = try JSONDecoder().decode(SettingsBackup.self, from: data)
+        guard backup.version == 1 else { throw NSError(domain: "AltTabSettings", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unsupported settings backup version."]) }
+
+        showUtilityWindows = backup.showUtilityWindows
+        showMinimizedWindows = backup.showMinimizedWindows
+        setExcludedBundleIdentifiers(backup.excludedBundleIdentifiers.joined(separator: ","))
+        contentMode = SwitcherContentMode(rawValue: backup.contentMode) ?? .windows
+        thumbnailSize = backup.thumbnailSize
+        iconSize = backup.iconSize
+        columns = backup.columns
+        showLabels = backup.showLabels
+        cornerRadius = backup.cornerRadius
+        opacity = backup.opacity
+        accentColorHex = backup.accentColorHex
+        backgroundBlur = backup.backgroundBlur
+        onlyCurrentDisplay = backup.onlyCurrentDisplay
+        activationShortcut = ActivationShortcut(rawValue: backup.activationShortcut) ?? .option
+        holdToPreview = backup.holdToPreview
+        rememberLastMode = backup.rememberLastMode
+        lastMode = backup.lastMode.flatMap(SwitcherContentMode.init(rawValue:))
+
+        for action in WindowAction.allCases {
+            resetWindowActionShortcut(for: action)
+        }
+        for action in WindowAction.allCases {
+            if let shortcut = backup.windowActionShortcuts[action.rawValue] {
+                _ = setWindowActionShortcut(shortcut, for: action)
+            }
+        }
+        try ShortcutStore.importBindings(backup.quickSlotBindings)
+        SearchHistoryStore.replace(with: backup.recentSearchTerms)
+        AppProfileStore.replaceAll(backup.appProfiles)
+        try LaunchAtLoginStore.setEnabled(backup.launchAtLogin)
     }
 }
