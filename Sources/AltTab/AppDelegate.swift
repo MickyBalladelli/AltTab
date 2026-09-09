@@ -58,11 +58,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handle(_ event: NSEvent) -> Bool {
         if event.type == .flagsChanged {
             updateModifierState(for: event)
-            if switcher.isVisible,
+            if switcher.isActive,
+               switcher.shouldCommitOnModifierRelease,
                SettingsStore.holdToPreview,
                ActivationShortcut.modifierKeyCodes.contains(event.keyCode),
                !SettingsStore.activationShortcut.matches(flags: event.modifierFlags, pressedKeyCodes: pressedModifierKeyCodes) {
-                switcher.commit()
+                if switcher.isLoading {
+                    switcher.cancel()
+                } else {
+                    switcher.commit()
+                }
                 return true
             }
             return false
@@ -73,6 +78,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let index = SwitcherController.numberIndex(for: event.keyCode),
            event.modifierFlags.contains(.option) {
             switcher.activateWindow(at: index)
+            return true
+        }
+
+        if switcher.isLoading {
+            if event.keyCode == 53 {
+                switcher.cancel()
+            }
             return true
         }
 
@@ -373,7 +385,13 @@ final class SwitcherController {
     private var panel: NSPanel?
     private var view: SwitcherView?
     private var blurView: NSVisualEffectView?
+    private var loadGeneration = 0
+    private var loading = false
+    private var holdToPreviewSession = false
     var isVisible: Bool { state.isVisible }
+    var isLoading: Bool { loading }
+    var isActive: Bool { isVisible || isLoading }
+    var shouldCommitOnModifierRelease: Bool { holdToPreviewSession }
     var searchQuery: String { state.searchQuery }
     var hasSearchQuery: Bool { state.hasSearchQuery }
     private var items: [SwitcherItem] { state.items }
@@ -381,14 +399,26 @@ final class SwitcherController {
 
     func begin() {
         SettingsStore.registerDefaults()
-        let orderedItems = MRUStore.order(WindowCatalog.items(for: SettingsStore.contentMode))
-        guard state.begin(items: orderedItems) else { return }
-        if panel == nil { createPanel() }
-        updatePanelAppearance()
-        updatePanelLayout()
-        syncView()
-        panel?.orderFrontRegardless()
-        announceSelection()
+        loadGeneration += 1
+        let generation = loadGeneration
+        loading = true
+        holdToPreviewSession = true
+        WindowCatalog.loadItems(for: SettingsStore.contentMode) { [weak self] loadedItems in
+            guard let self, self.loadGeneration == generation else { return }
+            self.loading = false
+            let orderedItems = MRUStore.order(loadedItems)
+            guard self.state.begin(items: orderedItems) else {
+                self.panel?.orderOut(nil)
+                self.syncView()
+                return
+            }
+            if self.panel == nil { self.createPanel() }
+            self.updatePanelAppearance()
+            self.updatePanelLayout()
+            self.syncView()
+            self.panel?.orderFrontRegardless()
+            self.announceSelection()
+        }
     }
 
     func advance() {
@@ -428,15 +458,23 @@ final class SwitcherController {
     }
 
     func activateWindow(at index: Int) {
-        let windows = MRUStore.order(WindowCatalog.items(for: .windows))
-        guard windows.indices.contains(index) else { return }
-        guard windows[index].activate() else {
-            reportActivationFailure()
-            return
-        }
-        MRUStore.record(windows[index])
-        if isVisible {
-            cancel()
+        loadGeneration += 1
+        let generation = loadGeneration
+        loading = true
+        holdToPreviewSession = false
+        WindowCatalog.loadItems(for: .windows) { [weak self] loadedItems in
+            guard let self, self.loadGeneration == generation else { return }
+            self.loading = false
+            let windows = MRUStore.order(loadedItems)
+            guard windows.indices.contains(index) else { return }
+            guard windows[index].activate() else {
+                self.reportActivationFailure()
+                return
+            }
+            MRUStore.record(windows[index])
+            if self.isVisible {
+                self.cancel()
+            }
         }
     }
 
@@ -447,6 +485,10 @@ final class SwitcherController {
     }
 
     func commit() {
+        guard !loading else {
+            cancel()
+            return
+        }
         guard let item = state.selectedItem else { cancel(); return }
         guard item.activate() else {
             state.removeSelected()
@@ -464,6 +506,9 @@ final class SwitcherController {
     }
 
     func cancel() {
+        loadGeneration += 1
+        loading = false
+        holdToPreviewSession = false
         state.cancel()
         panel?.orderOut(nil)
         syncView()

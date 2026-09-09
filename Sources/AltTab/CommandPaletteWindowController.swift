@@ -12,6 +12,7 @@ final class CommandPaletteWindowController: NSWindowController, NSTableViewDataS
     private var commands: [Command] = []
     private var filteredCommands: [Command] = []
     private var localMonitor: Any?
+    private var windowLoadGeneration = 0
 
     convenience init() {
         let window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 620, height: 410), styleMask: [.titled, .closable, .utilityWindow], backing: .buffered, defer: false)
@@ -68,26 +69,35 @@ final class CommandPaletteWindowController: NSWindowController, NSTableViewDataS
     }
 
     private func rebuildCommands(showSwitcher: @escaping () -> Void, showSettings: @escaping () -> Void) {
-        var result = [
+        let result = [
             Command(title: "Show Switcher", detail: "Open the window switcher", action: showSwitcher),
             Command(title: "Open Settings", detail: "Change AltTab preferences", action: showSettings),
             Command(title: "Diagnostics & Permissions", detail: "View local status", action: { DiagnosticsWindowController.shared.showWindow(nil) })
         ]
 
-        if let frontWindow = WindowCatalog.items(for: .windows).first {
-            for action in WindowAction.allCases {
-                result.append(Command(title: "\(action.title): \(frontWindow.title)", detail: frontWindow.subtitle, action: {
-                    WindowActionService.performWithConfirmation(action, on: frontWindow)
-                }))
-            }
-        }
-
+        var commands = result
         for application in installedApplications() {
-            result.append(Command(title: "Launch \(application.name)", detail: application.url.path, action: {
+            commands.append(Command(title: "Launch \(application.name)", detail: application.url.path, action: {
                 NSWorkspace.shared.open(application.url)
             }))
         }
-        commands = result
+        self.commands = commands
+        filterCommands()
+
+        windowLoadGeneration += 1
+        let generation = windowLoadGeneration
+        WindowCatalog.loadItems(for: .windows) { [weak self] loadedItems in
+            guard let self, self.windowLoadGeneration == generation else { return }
+            guard let frontWindow = loadedItems.first else { return }
+            var updatedCommands = self.commands
+            for action in WindowAction.allCases {
+                updatedCommands.append(Command(title: "\(action.title): \(frontWindow.title)", detail: frontWindow.subtitle, action: {
+                    WindowActionService.performWithConfirmation(action, on: frontWindow)
+                }))
+            }
+            self.commands = updatedCommands
+            self.filterCommands()
+        }
     }
 
     private func installedApplications() -> [(name: String, url: URL)] {

@@ -15,13 +15,14 @@ The GitHub Actions matrix runs these tests on macOS 13, macOS 14, macOS 15, and 
 
 ## Window catalog profiling
 
-`WindowCatalog` records the last enumeration duration, number of returned windows, and icon-cache hits/misses in `WindowCatalog.lastProfile`. The values appear in **Diagnostics & Permissions...**.
+`WindowCatalog` records the last enumeration duration, number of returned windows, and icon- and thumbnail-cache hits/misses in `WindowCatalog.lastProfile`. The values appear in **Diagnostics & Permissions...**.
 
-Icons are cached by bundle identifier, while thumbnails remain per-window because their content changes. This avoids repeated application icon work during switcher refreshes without serving stale window previews.
+Icons are cached by bundle identifier. Thumbnails use a bounded, size-aware cache with a short freshness window because their content changes. Window catalog loads are debounced and run away from the main thread.
 
-For a release build, use Instruments or Time Profiler while opening the switcher and watch the diagnostics profile between refreshes:
+Run the repeatable cold/warm catalog benchmark with:
 
 ```sh
-swift build -c release
-open .build/arm64-apple-macosx/release/AltTab
+./scripts/benchmark-window-catalog.sh
 ```
+
+For deeper inspection, use Instruments or Time Profiler while opening the switcher in a release build.

@@ -70,9 +70,15 @@ final class DiagnosticsView: NSView {
     }
 
     func refresh() {
+        detailsLabel.stringValue = "Loading local diagnostics..."
+        WindowCatalog.loadItems(for: .windows) { [weak self] loadedItems in
+            self?.render(windowCount: loadedItems.count)
+        }
+    }
+
+    private func render(windowCount: Int) {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
-        let windows = WindowCatalog.items(for: .windows).count
         let profile = WindowCatalog.lastProfile
         detailsLabel.stringValue = """
         Version:                 \(version) (build \(build))
@@ -83,9 +89,10 @@ final class DiagnosticsView: NSView {
         Increase Contrast:      \(SystemAccessibility.increaseContrast ? "On" : "Off")
         Reduce Transparency:    \(SystemAccessibility.reduceTransparency ? "On" : "Off")
         Content mode:           \(SettingsStore.contentMode.title)
-        Windows currently seen: \(windows)
+        Windows currently seen: \(windowCount)
         Enumeration time:       \(String(format: "%.1f ms", profile.elapsedMilliseconds))
         Icon cache:              \(profile.iconCacheHits) hits, \(profile.iconCacheMisses) misses
+        Thumbnail cache:         \(profile.thumbnailCacheHits) hits, \(profile.thumbnailCacheMisses) misses
         Saved MRU entries:      \(MRUStore.savedIdentifiers.count)
         """
     }

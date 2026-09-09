@@ -49,10 +49,10 @@
 - [x] (P1) Detect activation-shortcut conflicts before saving a binding.
 
 ### Speed
-- [ ] (P0) Move window enumeration and thumbnail capture off the main thread.
-- [ ] (P1) Add thumbnail caching with size-aware invalidation and memory limits.
-- [ ] (P1) Debounce repeated refreshes and avoid rebuilding unchanged switcher items.
-- [ ] (P2) Add a repeatable performance benchmark for cold and warm switcher opens.
+- [x] (P0) Move window enumeration and thumbnail capture off the main thread.
+- [x] (P1) Add thumbnail caching with size-aware invalidation and memory limits.
+- [x] (P1) Debounce repeated refreshes and avoid rebuilding unchanged switcher items.
+- [x] (P2) Add a repeatable performance benchmark for cold and warm switcher opens.
 
 ### Keyboard and window workflow
 - [ ] (P1) Add fuzzy search, recent search terms, and a visible result count.

@@ -6,6 +6,8 @@ struct WindowCatalogProfile: Equatable {
     let windowCount: Int
     let iconCacheHits: Int
     let iconCacheMisses: Int
+    let thumbnailCacheHits: Int
+    let thumbnailCacheMisses: Int
 }
 
 struct WindowItem {
@@ -65,26 +67,194 @@ final class WindowCatalog {
         let isUtility: Bool
     }
 
+    private struct CatalogCacheKey: Equatable {
+        let mode: SwitcherContentMode
+        let showMinimizedWindows: Bool
+        let showUtilityWindows: Bool
+        let onlyCurrentDisplay: Bool
+        let excludedBundleIdentifiers: String
+        let thumbnailSize: Int
+    }
+
+    private struct CatalogCacheEntry {
+        let key: CatalogCacheKey
+        let items: [SwitcherItem]
+        let createdAt: CFAbsoluteTime
+    }
+
+    private struct DisplaySnapshot {
+        let screenBounds: [CGRect]
+        let currentScreenBounds: CGRect?
+    }
+
+    private struct CatalogSettings {
+        let showMinimizedWindows: Bool
+        let showUtilityWindows: Bool
+        let onlyCurrentDisplay: Bool
+        let excludedBundleIdentifiers: Set<String>
+        let thumbnailSize: Int
+    }
+
+    private final class ThumbnailCacheEntry {
+        let image: NSImage
+        let createdAt: CFAbsoluteTime
+
+        init(image: NSImage, createdAt: CFAbsoluteTime) {
+            self.image = image
+            self.createdAt = createdAt
+        }
+    }
+
     private static let windowNumberAttribute = "AXWindowNumber" as CFString
     private static let utilitySubrole = "AXUtilityWindow"
     private static let workspaceKey = "kCGWindowWorkspace"
+    private static let loadQueue = DispatchQueue(label: "com.mickyballadelli.alttab.window-catalog", qos: .userInitiated)
+    private static let loadLock = NSLock()
+    private static var loadWorkItem: DispatchWorkItem?
+    private static var loadGeneration = 0
+    private static var cachedItems: CatalogCacheEntry?
+    private static let refreshDebounce: TimeInterval = 0.06
+    private static let cacheLifetime: TimeInterval = 0.2
     private static let iconCacheLock = NSLock()
     private static var iconCache: [String: NSImage] = [:]
-    private(set) static var lastProfile = WindowCatalogProfile(elapsedMilliseconds: 0, windowCount: 0, iconCacheHits: 0, iconCacheMisses: 0)
+    private static let thumbnailCacheLock = NSLock()
+    private static let thumbnailCache: NSCache<NSString, ThumbnailCacheEntry> = {
+        let cache = NSCache<NSString, ThumbnailCacheEntry>()
+        cache.countLimit = 64
+        cache.totalCostLimit = 32 * 1024 * 1024
+        return cache
+    }()
+    private static var thumbnailCacheSize: Int?
+    private(set) static var lastProfile = WindowCatalogProfile(
+        elapsedMilliseconds: 0,
+        windowCount: 0,
+        iconCacheHits: 0,
+        iconCacheMisses: 0,
+        thumbnailCacheHits: 0,
+        thumbnailCacheMisses: 0
+    )
 
     static func items(for mode: SwitcherContentMode) -> [SwitcherItem] {
+        SettingsStore.registerDefaults()
+        return items(
+            for: mode,
+            settings: catalogSettings(),
+            displaySnapshot: displaySnapshot()
+        )
+    }
+
+    private static func items(
+        for mode: SwitcherContentMode,
+        settings: CatalogSettings,
+        displaySnapshot: DisplaySnapshot
+    ) -> [SwitcherItem] {
         switch mode {
         case .applications:
-            return applicationItems(from: visibleWindows())
+            return applicationItems(from: visibleWindows(settings: settings, displaySnapshot: displaySnapshot))
         case .windows:
-            return visibleWindows().map { windowItem($0) }
+            return visibleWindows(settings: settings, displaySnapshot: displaySnapshot).map { windowItem($0) }
         case .spaces:
-            return spaceItems(from: allWindows())
+            return spaceItems(from: allWindows(settings: settings, displaySnapshot: displaySnapshot))
         case .fullScreenApps:
-            return fullScreenAppItems(from: visibleWindows())
+            return fullScreenAppItems(from: visibleWindows(settings: settings, displaySnapshot: displaySnapshot))
         case .mixed:
-            let windows = visibleWindows()
-            return applicationItems(from: windows) + windows.map { windowItem($0) } + spaceItems(from: allWindows())
+            let windows = visibleWindows(settings: settings, displaySnapshot: displaySnapshot)
+            return applicationItems(from: windows) + windows.map { windowItem($0) } + spaceItems(from: allWindows(settings: settings, displaySnapshot: displaySnapshot))
+        }
+    }
+
+    static func loadItems(for mode: SwitcherContentMode, completion: @escaping ([SwitcherItem]) -> Void) {
+        SettingsStore.registerDefaults()
+        let settings = catalogSettings()
+        let key = cacheKey(for: mode, settings: settings)
+        let displaySnapshot = displaySnapshot()
+
+        loadLock.lock()
+        loadGeneration += 1
+        let generation = loadGeneration
+        loadWorkItem?.cancel()
+        let workItem = DispatchWorkItem {
+            loadLock.lock()
+            guard generation == loadGeneration else {
+                loadLock.unlock()
+                return
+            }
+            if let cachedItems,
+               cachedItems.key == key,
+               CFAbsoluteTimeGetCurrent() - cachedItems.createdAt < cacheLifetime {
+                let items = cachedItems.items
+                loadLock.unlock()
+                deliver(items, generation: generation, completion: completion)
+                return
+            }
+            loadLock.unlock()
+
+            let items = self.items(for: mode, settings: settings, displaySnapshot: displaySnapshot)
+
+            loadLock.lock()
+            guard generation == loadGeneration else {
+                loadLock.unlock()
+                return
+            }
+            cachedItems = CatalogCacheEntry(key: key, items: items, createdAt: CFAbsoluteTimeGetCurrent())
+            loadLock.unlock()
+            deliver(items, generation: generation, completion: completion)
+        }
+        loadWorkItem = workItem
+        loadLock.unlock()
+        loadQueue.asyncAfter(deadline: .now() + refreshDebounce, execute: workItem)
+    }
+
+    static func resetCaches() {
+        loadLock.lock()
+        loadGeneration += 1
+        loadWorkItem?.cancel()
+        loadWorkItem = nil
+        cachedItems = nil
+        loadLock.unlock()
+
+        iconCacheLock.lock()
+        iconCache.removeAll()
+        iconCacheLock.unlock()
+
+        thumbnailCacheLock.lock()
+        thumbnailCache.removeAllObjects()
+        thumbnailCacheSize = nil
+        thumbnailCacheLock.unlock()
+    }
+
+    private static func catalogSettings() -> CatalogSettings {
+        CatalogSettings(
+            showMinimizedWindows: SettingsStore.showMinimizedWindows,
+            showUtilityWindows: SettingsStore.showUtilityWindows,
+            onlyCurrentDisplay: SettingsStore.onlyCurrentDisplay,
+            excludedBundleIdentifiers: SettingsStore.excludedBundleIdentifiers,
+            thumbnailSize: Int(SettingsStore.thumbnailSize.rounded())
+        )
+    }
+
+    private static func cacheKey(for mode: SwitcherContentMode, settings: CatalogSettings) -> CatalogCacheKey {
+        CatalogCacheKey(
+            mode: mode,
+            showMinimizedWindows: settings.showMinimizedWindows,
+            showUtilityWindows: settings.showUtilityWindows,
+            onlyCurrentDisplay: settings.onlyCurrentDisplay,
+            excludedBundleIdentifiers: settings.excludedBundleIdentifiers.sorted().joined(separator: "|"),
+            thumbnailSize: settings.thumbnailSize
+        )
+    }
+
+    private static func deliver(
+        _ items: [SwitcherItem],
+        generation: Int,
+        completion: @escaping ([SwitcherItem]) -> Void
+    ) {
+        DispatchQueue.main.async {
+            loadLock.lock()
+            let isCurrent = generation == loadGeneration
+            loadLock.unlock()
+            guard isCurrent else { return }
+            completion(items)
         }
     }
 
@@ -170,18 +340,20 @@ final class WindowCatalog {
         }
     }
 
-    private static func visibleWindows() -> [WindowItem] {
-        enumerateWindows(includeOffScreen: false)
+    private static func visibleWindows(settings: CatalogSettings, displaySnapshot: DisplaySnapshot) -> [WindowItem] {
+        enumerateWindows(includeOffScreen: false, settings: settings, displaySnapshot: displaySnapshot)
     }
 
-    private static func allWindows() -> [WindowItem] {
-        enumerateWindows(includeOffScreen: true)
+    private static func allWindows(settings: CatalogSettings, displaySnapshot: DisplaySnapshot) -> [WindowItem] {
+        enumerateWindows(includeOffScreen: true, settings: settings, displaySnapshot: displaySnapshot)
     }
 
-    private static func enumerateWindows(includeOffScreen: Bool) -> [WindowItem] {
-        SettingsStore.registerDefaults()
-
-        let listOptions: CGWindowListOption = includeOffScreen || SettingsStore.showMinimizedWindows
+    private static func enumerateWindows(
+        includeOffScreen: Bool,
+        settings: CatalogSettings,
+        displaySnapshot: DisplaySnapshot
+    ) -> [WindowItem] {
+        let listOptions: CGWindowListOption = includeOffScreen || settings.showMinimizedWindows
             ? [.optionAll, .excludeDesktopElements]
             : [.optionOnScreenOnly, .excludeDesktopElements]
         guard let list = CGWindowListCopyWindowInfo(listOptions, kCGNullWindowID) as? [[String: Any]] else { return [] }
@@ -190,6 +362,8 @@ final class WindowCatalog {
         var seenWindowIDs = Set<CGWindowID>()
         var iconCacheHits = 0
         var iconCacheMisses = 0
+        var thumbnailCacheHits = 0
+        var thumbnailCacheMisses = 0
         let startedAt = CFAbsoluteTimeGetCurrent()
 
         let result: [WindowItem] = list.compactMap { info in
@@ -214,13 +388,13 @@ final class WindowCatalog {
             }
             let isOnScreen = info[kCGWindowIsOnscreen as String] as? Bool ?? true
             let isMinimized = accessibilityWindow?.isMinimized ?? !isOnScreen
-            let isOnCurrentDisplay = isOnCurrentDisplay(windowFrame)
+            let isOnCurrentDisplay = isOnCurrentDisplay(windowFrame, currentScreenBounds: displaySnapshot.currentScreenBounds)
             let filterOptions = WindowFilterOptions(
                 includeOffScreen: includeOffScreen,
-                showMinimizedWindows: SettingsStore.showMinimizedWindows,
-                showUtilityWindows: SettingsStore.showUtilityWindows,
-                onlyCurrentDisplay: SettingsStore.onlyCurrentDisplay,
-                excludedBundleIdentifiers: SettingsStore.excludedBundleIdentifiers
+                showMinimizedWindows: settings.showMinimizedWindows,
+                showUtilityWindows: settings.showUtilityWindows,
+                onlyCurrentDisplay: settings.onlyCurrentDisplay,
+                excludedBundleIdentifiers: settings.excludedBundleIdentifiers
             )
             let candidate = WindowFilterCandidate(
                 bundleIdentifier: app.bundleIdentifier ?? "",
@@ -242,18 +416,25 @@ final class WindowCatalog {
             } else {
                 iconCacheMisses += 1
             }
-            let thumbnail = CGWindowListCreateImage(.null, [.optionIncludingWindow], windowID, [.bestResolution, .boundsIgnoreFraming]).map {
-                NSImage(cgImage: $0, size: NSSize(width: windowFrame.width, height: windowFrame.height))
+            let cachedThumbnail = thumbnail(
+                for: windowID,
+                frame: windowFrame,
+                requestedSize: settings.thumbnailSize
+            )
+            if cachedThumbnail.wasCached {
+                thumbnailCacheHits += 1
+            } else {
+                thumbnailCacheMisses += 1
             }
-            let isFullScreen = NSScreen.screens.contains { screen in
-                abs(windowFrame.width - screen.frame.width) < 4 && abs(windowFrame.height - screen.frame.height) < 4
+            let isFullScreen = displaySnapshot.screenBounds.contains { screenBounds in
+                abs(windowFrame.width - screenBounds.width) < 4 && abs(windowFrame.height - screenBounds.height) < 4
             }
             return WindowItem(
                 windowID: windowID,
                 app: app,
                 title: resolvedTitle,
                 icon: cachedIcon.image,
-                thumbnail: thumbnail,
+                thumbnail: cachedThumbnail.image,
                 isMinimized: isMinimized,
                 frame: windowFrame,
                 workspaceID: (info[workspaceKey] as? NSNumber)?.intValue,
@@ -264,7 +445,9 @@ final class WindowCatalog {
             elapsedMilliseconds: (CFAbsoluteTimeGetCurrent() - startedAt) * 1000,
             windowCount: result.count,
             iconCacheHits: iconCacheHits,
-            iconCacheMisses: iconCacheMisses
+            iconCacheMisses: iconCacheMisses,
+            thumbnailCacheHits: thumbnailCacheHits,
+            thumbnailCacheMisses: thumbnailCacheMisses
         )
         return result
     }
@@ -282,10 +465,80 @@ final class WindowCatalog {
         return (image, false)
     }
 
-    private static func isOnCurrentDisplay(_ windowFrame: CGRect) -> Bool {
-        guard let screen = NSScreen.main,
-              let displayNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return true }
-        return windowFrame.intersects(CGDisplayBounds(displayNumber))
+    private static func thumbnail(
+        for windowID: CGWindowID,
+        frame: CGRect,
+        requestedSize: Int
+    ) -> (image: NSImage?, wasCached: Bool) {
+        let size = max(24, requestedSize)
+        let key = [
+            String(windowID),
+            String(Int(frame.origin.x.rounded())),
+            String(Int(frame.origin.y.rounded())),
+            String(Int(frame.width.rounded())),
+            String(Int(frame.height.rounded())),
+            String(size)
+        ].joined(separator: ":") as NSString
+
+        thumbnailCacheLock.lock()
+        if thumbnailCacheSize != size {
+            thumbnailCache.removeAllObjects()
+            thumbnailCacheSize = size
+        }
+        if let cached = thumbnailCache.object(forKey: key),
+           CFAbsoluteTimeGetCurrent() - cached.createdAt < 1.0 {
+            thumbnailCacheLock.unlock()
+            return (cached.image, true)
+        }
+        thumbnailCache.removeObject(forKey: key)
+        thumbnailCacheLock.unlock()
+
+        guard let image = CGWindowListCreateImage(
+            .null,
+            [.optionIncludingWindow],
+            windowID,
+            [.bestResolution, .boundsIgnoreFraming]
+        ), let thumbnail = downsample(image, to: size) else {
+            return (nil, false)
+        }
+
+        thumbnailCacheLock.lock()
+        thumbnailCache.setObject(
+            ThumbnailCacheEntry(image: thumbnail, createdAt: CFAbsoluteTimeGetCurrent()),
+            forKey: key,
+            cost: size * size * 4
+        )
+        thumbnailCacheLock.unlock()
+        return (thumbnail, false)
+    }
+
+    private static func downsample(_ image: CGImage, to size: Int) -> NSImage? {
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        guard let context = CGContext(
+            data: nil,
+            width: size,
+            height: size,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: size, height: size))
+        guard let resizedImage = context.makeImage() else { return nil }
+        return NSImage(cgImage: resizedImage, size: NSSize(width: size, height: size))
+    }
+
+    private static func displaySnapshot() -> DisplaySnapshot {
+        let screens = NSScreen.screens
+        let screenBounds = screens.map(\.frame)
+        return DisplaySnapshot(screenBounds: screenBounds, currentScreenBounds: NSScreen.main?.frame)
+    }
+
+    private static func isOnCurrentDisplay(_ windowFrame: CGRect, currentScreenBounds: CGRect?) -> Bool {
+        guard let currentScreenBounds else { return true }
+        return windowFrame.intersects(currentScreenBounds)
     }
 
     fileprivate static func windowID(for window: AXUIElement) -> CGWindowID? {
