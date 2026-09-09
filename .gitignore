@@ -1,0 +1,12 @@
+.build/
+build/
+DerivedData/
+.swiftpm/
+*.xcodeproj/
+*.xcworkspace/
+.DS_Store
+
+# Local signing and packaging material
+*.p12
+*.cer
+*.mobileprovision

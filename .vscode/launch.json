@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:AltTab}",
+      "name": "Debug AltTab",
+      "target": "AltTab",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug AltTab"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:AltTab}",
+      "name": "Release AltTab",
+      "target": "AltTab",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release AltTab"
+    }
+  ]
+}
