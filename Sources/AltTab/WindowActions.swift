@@ -37,9 +37,11 @@ enum WindowActionService {
             }
             var closeButton: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &closeButton) == .success,
-                  let button = closeButton as? AXUIElement else {
+                  let closeButton,
+                  CFGetTypeID(closeButton) == AXUIElementGetTypeID() else {
                 return reportFailure(action)
             }
+            let button = closeButton as! AXUIElement
             succeeded = AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
         case .moveToDisplay:
             succeeded = moveToNextDisplay(item)

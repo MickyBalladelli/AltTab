@@ -42,11 +42,11 @@
 ## Improvements
 
 ### Reliability and safety
-- [ ] (P0) Replace volatile CG window IDs with a stable app/title/frame fallback for MRU entries across relaunches.
-- [ ] (P0) Handle windows that close, move, or lose Accessibility access while the switcher is open.
-- [ ] (P0) Make close and move actions report failure clearly, with confirmation for close.
-- [ ] (P1) Add a safe recovery path when Accessibility permission is revoked during use.
-- [ ] (P1) Detect activation-shortcut conflicts before saving a binding.
+- [x] (P0) Replace volatile CG window IDs with a stable app/title/frame fallback for MRU entries across relaunches.
+- [x] (P0) Handle windows that close, move, or lose Accessibility access while the switcher is open.
+- [x] (P0) Make close and move actions report failure clearly, with confirmation for close.
+- [x] (P1) Add a safe recovery path when Accessibility permission is revoked during use.
+- [x] (P1) Detect activation-shortcut conflicts before saving a binding.
 
 ### Speed
 - [ ] (P0) Move window enumeration and thumbnail capture off the main thread.
