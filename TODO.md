@@ -1,12 +1,12 @@
 # AltTab TODO
 
 ## MVP hardening
-- [ ] Add a real `.app` bundle with `Info.plist`, icon assets, versioning, and a signed release build.
-- [ ] Add Accessibility permission detection and an onboarding prompt with a direct link to System Settings.
-- [ ] Make the switcher window-aware: distinguish multiple windows from the same app and activate the selected window, not only its app.
-- [ ] Support arrow keys, number keys, mouse selection, and repeated reverse cycling with `Option-Shift-Tab`.
-- [ ] Hide utility windows, minimized windows, and excluded apps using user-configurable filters.
-- [ ] Replace the demo settings controls with persisted settings backed by `UserDefaults`.
+- [x] Add a real `.app` bundle with `Info.plist`, icon assets, versioning, and a signed release build.
+- [x] Add Accessibility permission detection and an onboarding prompt with a direct link to System Settings.
+- [x] Make the switcher window-aware: distinguish multiple windows from the same app and activate the selected window, not only its app.
+- [x] Support arrow keys, number keys, mouse selection, and repeated reverse cycling with `Option-Shift-Tab`.
+- [x] Hide utility windows, minimized windows, and excluded apps using user-configurable filters.
+- [x] Replace the demo settings controls with persisted settings backed by `UserDefaults`.
 
 ## Customization
 - [ ] Choose switcher contents: applications, windows, spaces, full-screen apps, or a mixed view.

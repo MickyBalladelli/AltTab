@@ -18,9 +18,22 @@ chmod +x scripts/build-app.sh
 open build/AltTab.app
 ```
 
-The script creates a locally ad-hoc signed app. Distribution through Homebrew still requires a Developer ID signature and notarization.
+The script creates a versioned, locally ad-hoc signed app. For a release build, provide a Developer ID identity:
 
-The app needs macOS Accessibility permission before global keyboard monitoring can work. Grant it in **System Settings > Privacy & Security > Accessibility**.
+```sh
+ALT_TAB_VERSION=1.0.0 \
+ALT_TAB_BUILD_NUMBER=100 \
+ALT_TAB_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+./scripts/build-app.sh
+```
+
+Distribution through Homebrew still requires notarization.
+
+On first launch, AltTab detects missing Accessibility permission and offers a button to open **System Settings > Privacy & Security > Accessibility**. The same link is available from the menu bar and Settings.
+
+The switcher supports Option-Tab cycling, Option-Shift-Tab reverse cycling, arrow keys, number selection, Return, Escape, and mouse selection. It activates the selected window, including a specific window when several belong to one app.
+
+Window filters and excluded bundle IDs are persisted in `UserDefaults` from the Settings window. By default, utility and minimized windows are hidden.
 
 ## F1-F12 quick app slots
 

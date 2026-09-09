@@ -1,37 +1,17 @@
 import AppKit
-import ApplicationServices
-
-struct WindowItem {
-    let windowID: CGWindowID
-    let app: NSRunningApplication
-    let title: String
-    let icon: NSImage
-
-    func activate() {
-        app.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
-        let application = AXUIElementCreateApplication(app.processIdentifier)
-        var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
-              let windows = value as? [AXUIElement] else { return }
-        for window in windows {
-            var titleValue: CFTypeRef?
-            AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &titleValue)
-            guard titleValue as? String == title else { continue }
-            AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-            return
-        }
-    }
-}
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let switcher = SwitcherController()
+    private let accessibilityOnboarding = AccessibilityOnboardingController()
     private var statusItem: NSStatusItem!
     private var globalMonitor: Any?
     private var localMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        SettingsStore.registerDefaults()
         configureMenuBar()
         installKeyboardMonitors()
+        accessibilityOnboarding.presentIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -45,6 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show Switcher", action: #selector(showSwitcher), keyEquivalent: ""))
         menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "Accessibility Permission...", action: #selector(showAccessibilitySettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Quit AltTab", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -62,34 +43,66 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @discardableResult
     private func handle(_ event: NSEvent) -> Bool {
-        if event.type == .keyDown, let slot = ShortcutStore.slot(for: event.keyCode) {
-            ShortcutStore.activate(slot: slot)
-            return true
-        }
-        guard event.keyCode == 48 else { return false }
-        let optionPressed = event.modifierFlags.contains(.option)
-        if event.type == .keyDown && optionPressed {
-            if !switcher.isVisible { switcher.begin() } else { switcher.advance() }
-            return true
-        }
-        if event.type == .keyDown && switcher.isVisible {
-            if event.keyCode == 36 || event.keyCode == 76 {
+        if event.type == .flagsChanged {
+            if switcher.isVisible && !event.modifierFlags.contains(.option) {
                 switcher.commit()
                 return true
             }
-            if event.keyCode == 53 {
+            return false
+        }
+
+        guard event.type == .keyDown else { return false }
+
+        if switcher.isVisible {
+            switch event.keyCode {
+            case 36, 76:
+                switcher.commit()
+                return true
+            case 53:
                 switcher.cancel()
                 return true
+            case 48 where event.modifierFlags.contains(.option):
+                if event.modifierFlags.contains(.shift) {
+                    switcher.previous()
+                } else {
+                    switcher.advance()
+                }
+                return true
+            case 123, 126:
+                switcher.previous()
+                return true
+            case 124, 125:
+                switcher.advance()
+                return true
+            default:
+                if let index = SwitcherController.numberIndex(for: event.keyCode),
+                   event.modifierFlags.intersection([.command, .control]).isEmpty {
+                    switcher.select(index: index)
+                    return true
+                }
             }
         }
-        if event.type == .flagsChanged && !optionPressed && switcher.isVisible {
-            switcher.commit()
+
+        if let slot = ShortcutStore.slot(for: event.keyCode) {
+            ShortcutStore.activate(slot: slot)
+            return true
+        }
+
+        if event.keyCode == 48, event.modifierFlags.contains(.option) {
+            if !switcher.isVisible {
+                switcher.begin()
+            } else if event.modifierFlags.contains(.shift) {
+                switcher.previous()
+            } else {
+                switcher.advance()
+            }
             return true
         }
         return false
     }
 
     @objc private func showSwitcher() { switcher.begin() }
+    @objc private func showAccessibilitySettings() { accessibilityOnboarding.showAlertIfNeeded() }
     @objc private func showSettings() { SettingsWindowController.shared.showWindow(nil) }
 }
 
@@ -133,6 +146,24 @@ final class SwitcherController {
         view?.selectedIndex = selectedIndex
     }
 
+    func previous() {
+        guard isVisible, !items.isEmpty else { return }
+        selectedIndex = (selectedIndex - 1 + items.count) % items.count
+        view?.selectedIndex = selectedIndex
+    }
+
+    func select(index: Int) {
+        guard isVisible, items.indices.contains(index) else { return }
+        selectedIndex = index
+        view?.selectedIndex = selectedIndex
+    }
+
+    static func numberIndex(for keyCode: UInt16) -> Int? {
+        let keyCodes: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25]
+        guard let index = keyCodes.firstIndex(of: keyCode) else { return nil }
+        return index
+    }
+
     func commit() {
         guard isVisible, items.indices.contains(selectedIndex) else { cancel(); return }
         items[selectedIndex].activate()
@@ -153,27 +184,19 @@ final class SwitcherController {
         panel.hasShadow = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let view = SwitcherView(frame: NSRect(origin: .zero, size: size))
+        view.onItemSelected = { [weak self] index in
+            self?.select(index: index)
+        }
+        view.onItemCommitted = { [weak self] in
+            self?.commit()
+        }
         panel.contentView = view
+        panel.acceptsMouseMovedEvents = true
+        panel.ignoresMouseEvents = false
         self.panel = panel
         self.view = view
         if let screen = NSScreen.main {
             panel.setFrameOrigin(NSPoint(x: screen.frame.midX - size.width / 2, y: screen.frame.midY - size.height / 2))
-        }
-    }
-}
-
-final class WindowCatalog {
-    static func visibleWindows() -> [WindowItem] {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return [] }
-        return list.compactMap { info in
-            guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
-                  let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
-                  let bounds = info[kCGWindowBounds as String] as? [String: CGFloat],
-                  (bounds["Width"] ?? 0) > 80, (bounds["Height"] ?? 0) > 50,
-                  let app = NSRunningApplication(processIdentifier: ownerPID),
-                  let windowID = info[kCGWindowNumber as String] as? CGWindowID else { return nil }
-            let title = info[kCGWindowName as String] as? String ?? app.localizedName ?? "Window"
-            return WindowItem(windowID: windowID, app: app, title: title.isEmpty ? (app.localizedName ?? "Window") : title, icon: app.icon ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)!)
         }
     }
 }

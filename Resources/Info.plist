@@ -8,6 +8,10 @@
     <string>AltTab</string>
     <key>CFBundleIdentifier</key>
     <string>com.alttab.AltTab</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIconName</key>
+    <string>AppIcon</string>
     <key>CFBundleName</key>
     <string>AltTab</string>
     <key>CFBundlePackageType</key>
