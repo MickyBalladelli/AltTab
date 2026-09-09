@@ -57,3 +57,5 @@ brew install --cask alt-tab
 ```
 
 Release builds are signed with Developer ID, notarized by Apple, and published as `AltTab.dmg` with a SHA-256 checksum. The menu bar's **Check for Updates...** command checks the latest signed release on demand. See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) for release setup, uninstall, permission reset, and troubleshooting.
+
+Quality checks run in GitHub Actions on macOS 13 through the current macOS release across Intel and Apple Silicon. See [docs/QUALITY.md](docs/QUALITY.md) for test coverage and window-catalog profiling.

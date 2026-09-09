@@ -73,6 +73,7 @@ final class DiagnosticsView: NSView {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
         let windows = WindowCatalog.items(for: .windows).count
+        let profile = WindowCatalog.lastProfile
         detailsLabel.stringValue = """
         Version:                 \(version) (build \(build))
         macOS:                  \(ProcessInfo.processInfo.operatingSystemVersionString)
@@ -83,6 +84,8 @@ final class DiagnosticsView: NSView {
         Reduce Transparency:    \(SystemAccessibility.reduceTransparency ? "On" : "Off")
         Content mode:           \(SettingsStore.contentMode.title)
         Windows currently seen: \(windows)
+        Enumeration time:       \(String(format: "%.1f ms", profile.elapsedMilliseconds))
+        Icon cache:              \(profile.iconCacheHits) hits, \(profile.iconCacheMisses) misses
         Saved MRU entries:      \(MRUStore.savedIdentifiers.count)
         """
     }

@@ -208,11 +208,16 @@ enum ShortcutStore {
         }
     }
 
+    static func defaultKeyCode(for slot: Int) -> UInt16? {
+        guard (1...defaultKeyCodes.count).contains(slot) else { return nil }
+        return defaultKeyCodes[slot - 1]
+    }
+
     static func trigger(for slot: Int) -> (keyCode: UInt16, modifiers: UInt) {
         let keyCodeKey = keyPrefix + "\(slot)" + keyCodeSuffix
         let modifiersKey = keyPrefix + "\(slot)" + modifiersSuffix
         guard UserDefaults.standard.object(forKey: keyCodeKey) != nil else {
-            return (defaultKeyCodes[slot - 1], 0)
+            return (defaultKeyCode(for: slot) ?? 0, 0)
         }
         return (UInt16(UserDefaults.standard.integer(forKey: keyCodeKey)), UInt(UserDefaults.standard.integer(forKey: modifiersKey)))
     }
@@ -280,73 +285,62 @@ enum ShortcutStore {
 }
 
 final class SwitcherController {
-    private(set) var isVisible = false
-    private var items: [SwitcherItem] = []
-    private var sourceItems: [SwitcherItem] = []
-    private(set) var searchQuery = ""
-    private var selectedIndex = 0
+    private var state = SwitcherState()
     private var panel: NSPanel?
     private var view: SwitcherView?
     private var blurView: NSVisualEffectView?
-    var hasSearchQuery: Bool { !searchQuery.isEmpty }
+    var isVisible: Bool { state.isVisible }
+    var searchQuery: String { state.searchQuery }
+    var hasSearchQuery: Bool { state.hasSearchQuery }
+    private var items: [SwitcherItem] { state.items }
+    private var selectedIndex: Int { state.selectedIndex }
 
     func begin() {
         SettingsStore.registerDefaults()
-        sourceItems = MRUStore.order(WindowCatalog.items(for: SettingsStore.contentMode))
-        guard !sourceItems.isEmpty else { return }
-        searchQuery = ""
-        items = sourceItems
-        selectedIndex = 0
-        isVisible = true
+        let orderedItems = MRUStore.order(WindowCatalog.items(for: SettingsStore.contentMode))
+        guard state.begin(items: orderedItems) else { return }
         if panel == nil { createPanel() }
         updatePanelAppearance()
         updatePanelLayout()
-        view?.items = items
-        view?.searchQuery = searchQuery
-        view?.selectedIndex = selectedIndex
+        syncView()
         panel?.orderFrontRegardless()
         announceSelection()
     }
 
     func advance() {
-        guard isVisible, !items.isEmpty else { return }
-        selectedIndex = (selectedIndex + 1) % items.count
-        view?.selectedIndex = selectedIndex
+        guard state.advance() else { return }
+        syncView()
         announceSelection()
     }
 
     func previous() {
-        guard isVisible, !items.isEmpty else { return }
-        selectedIndex = (selectedIndex - 1 + items.count) % items.count
-        view?.selectedIndex = selectedIndex
+        guard state.previous() else { return }
+        syncView()
         announceSelection()
     }
 
     func select(index: Int) {
-        guard isVisible, items.indices.contains(index) else { return }
-        selectedIndex = index
-        view?.selectedIndex = selectedIndex
+        guard state.select(index: index) else { return }
+        syncView()
         announceSelection()
     }
 
     func appendSearchText(_ text: String) {
-        guard isVisible else { return }
-        let additions = text.filter { !$0.isNewline && $0 != "\u{7f}" }
-        guard !additions.isEmpty else { return }
-        searchQuery.append(contentsOf: additions)
-        applySearch()
+        guard state.appendSearchText(text) else { return }
+        syncView()
+        announceSelection()
     }
 
     func deleteSearchCharacter() {
-        guard isVisible, !searchQuery.isEmpty else { return }
-        searchQuery.removeLast()
-        applySearch()
+        guard state.deleteSearchCharacter() else { return }
+        syncView()
+        announceSelection()
     }
 
     func clearSearch() {
-        guard isVisible, !searchQuery.isEmpty else { return }
-        searchQuery = ""
-        applySearch()
+        guard state.clearSearch() else { return }
+        syncView()
+        announceSelection()
     }
 
     func activateWindow(at index: Int) {
@@ -364,17 +358,17 @@ final class SwitcherController {
     }
 
     func commit() {
-        guard isVisible, items.indices.contains(selectedIndex) else { cancel(); return }
-        MRUStore.record(items[selectedIndex])
-        items[selectedIndex].activate()
-        cancel()
+        guard let item = state.commit() else { cancel(); return }
+        MRUStore.record(item)
+        item.activate()
+        syncView()
+        panel?.orderOut(nil)
     }
 
     func cancel() {
-        isVisible = false
+        state.cancel()
         panel?.orderOut(nil)
-        searchQuery = ""
-        view?.searchQuery = searchQuery
+        syncView()
     }
 
     private func createPanel() {
@@ -441,31 +435,17 @@ final class SwitcherController {
         panel.animationBehavior = SystemAccessibility.reduceMotion ? .none : .utilityWindow
     }
 
-    private func applySearch() {
-        let previousIdentifier = items.indices.contains(selectedIndex) ? items[selectedIndex].identifier : nil
-        if searchQuery.isEmpty {
-            items = sourceItems
-        } else {
-            items = sourceItems.filter { item in
-                item.title.localizedCaseInsensitiveContains(searchQuery) ||
-                item.subtitle.localizedCaseInsensitiveContains(searchQuery) ||
-                (item.app?.localizedName?.localizedCaseInsensitiveContains(searchQuery) ?? false)
-            }
-        }
-        selectedIndex = previousIdentifier.flatMap { identifier in
-            items.firstIndex { $0.identifier == identifier }
-        } ?? 0
+    private func syncView() {
         view?.items = items
         view?.searchQuery = searchQuery
         view?.selectedIndex = selectedIndex
-        announceSelection()
     }
 
     private func announceSelection() {
         guard SystemAccessibility.voiceOverEnabled,
               let view,
-              items.indices.contains(selectedIndex) else { return }
-        let item = items[selectedIndex]
+              state.items.indices.contains(state.selectedIndex) else { return }
+        let item = state.items[state.selectedIndex]
         let announcement = item.title + ", " + item.subtitle
         NSAccessibility.post(
             element: view,

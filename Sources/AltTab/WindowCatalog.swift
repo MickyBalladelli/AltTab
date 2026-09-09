@@ -1,6 +1,13 @@
 import AppKit
 import ApplicationServices
 
+struct WindowCatalogProfile: Equatable {
+    let elapsedMilliseconds: Double
+    let windowCount: Int
+    let iconCacheHits: Int
+    let iconCacheMisses: Int
+}
+
 struct WindowItem {
     let windowID: CGWindowID
     let app: NSRunningApplication
@@ -50,6 +57,9 @@ final class WindowCatalog {
     private static let windowNumberAttribute = "AXWindowNumber" as CFString
     private static let utilitySubrole = "AXUtilityWindow"
     private static let workspaceKey = "kCGWindowWorkspace"
+    private static let iconCacheLock = NSLock()
+    private static var iconCache: [String: NSImage] = [:]
+    private(set) static var lastProfile = WindowCatalogProfile(elapsedMilliseconds: 0, windowCount: 0, iconCacheHits: 0, iconCacheMisses: 0)
 
     static func items(for mode: SwitcherContentMode) -> [SwitcherItem] {
         switch mode {
@@ -167,17 +177,17 @@ final class WindowCatalog {
 
         var accessibilityCache: [pid_t: [AccessibilityWindow]] = [:]
         var seenWindowIDs = Set<CGWindowID>()
+        var iconCacheHits = 0
+        var iconCacheMisses = 0
+        let startedAt = CFAbsoluteTimeGetCurrent()
 
-        return list.compactMap { info in
+        let result: [WindowItem] = list.compactMap { info in
             guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
-                  let layer = info[kCGWindowLayer as String] as? Int, layer == 0,
+                  let layer = info[kCGWindowLayer as String] as? Int,
                   let bounds = info[kCGWindowBounds as String] as? [String: CGFloat],
-                  (bounds["Width"] ?? 0) > 80, (bounds["Height"] ?? 0) > 50,
                   let app = NSRunningApplication(processIdentifier: ownerPID),
                   let windowID = info[kCGWindowNumber as String] as? CGWindowID,
                   seenWindowIDs.insert(windowID).inserted else { return nil }
-
-            guard !SettingsStore.excludedBundleIdentifiers.contains((app.bundleIdentifier ?? "").lowercased()) else { return nil }
 
             let windowFrame = CGRect(
                 x: bounds["X"] ?? 0,
@@ -185,7 +195,6 @@ final class WindowCatalog {
                 width: bounds["Width"] ?? 0,
                 height: bounds["Height"] ?? 0
             )
-            guard !SettingsStore.onlyCurrentDisplay || isOnCurrentDisplay(windowFrame) else { return nil }
             let windows = accessibilityCache[ownerPID] ?? accessibilityWindows(for: app)
             accessibilityCache[ownerPID] = windows
             let accessibilityWindow = windows.first { $0.id == windowID } ?? windows.first { candidate in
@@ -194,20 +203,34 @@ final class WindowCatalog {
             }
             let isOnScreen = info[kCGWindowIsOnscreen as String] as? Bool ?? true
             let isMinimized = accessibilityWindow?.isMinimized ?? !isOnScreen
-
-            if !includeOffScreen && !SettingsStore.showMinimizedWindows && (!isOnScreen || isMinimized) {
-                return nil
-            }
-            if !includeOffScreen && SettingsStore.showMinimizedWindows && !isOnScreen && !isMinimized {
-                return nil
-            }
-            if !SettingsStore.showUtilityWindows && accessibilityWindow?.isUtility == true {
-                return nil
-            }
+            let isOnCurrentDisplay = isOnCurrentDisplay(windowFrame)
+            let filterOptions = WindowFilterOptions(
+                includeOffScreen: includeOffScreen,
+                showMinimizedWindows: SettingsStore.showMinimizedWindows,
+                showUtilityWindows: SettingsStore.showUtilityWindows,
+                onlyCurrentDisplay: SettingsStore.onlyCurrentDisplay,
+                excludedBundleIdentifiers: SettingsStore.excludedBundleIdentifiers
+            )
+            let candidate = WindowFilterCandidate(
+                bundleIdentifier: app.bundleIdentifier ?? "",
+                layer: layer,
+                width: windowFrame.width,
+                height: windowFrame.height,
+                isOnScreen: isOnScreen,
+                isMinimized: isMinimized,
+                isUtility: accessibilityWindow?.isUtility ?? false,
+                isOnCurrentDisplay: isOnCurrentDisplay
+            )
+            guard WindowFilter.includes(candidate, options: filterOptions) else { return nil }
 
             let title = info[kCGWindowName as String] as? String ?? app.localizedName ?? "Window"
             let resolvedTitle = title.isEmpty ? (app.localizedName ?? "Window") : title
-            let icon = app.icon ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)!
+            let cachedIcon = icon(for: app)
+            if cachedIcon.wasCached {
+                iconCacheHits += 1
+            } else {
+                iconCacheMisses += 1
+            }
             let thumbnail = CGWindowListCreateImage(.null, [.optionIncludingWindow], windowID, [.bestResolution, .boundsIgnoreFraming]).map {
                 NSImage(cgImage: $0, size: NSSize(width: windowFrame.width, height: windowFrame.height))
             }
@@ -218,7 +241,7 @@ final class WindowCatalog {
                 windowID: windowID,
                 app: app,
                 title: resolvedTitle,
-                icon: icon,
+                icon: cachedIcon.image,
                 thumbnail: thumbnail,
                 isMinimized: isMinimized,
                 frame: windowFrame,
@@ -226,6 +249,26 @@ final class WindowCatalog {
                 isFullScreen: isFullScreen
             )
         }
+        lastProfile = WindowCatalogProfile(
+            elapsedMilliseconds: (CFAbsoluteTimeGetCurrent() - startedAt) * 1000,
+            windowCount: result.count,
+            iconCacheHits: iconCacheHits,
+            iconCacheMisses: iconCacheMisses
+        )
+        return result
+    }
+
+    private static func icon(for app: NSRunningApplication) -> (image: NSImage, wasCached: Bool) {
+        let key = app.bundleIdentifier ?? "pid:\(app.processIdentifier)"
+        iconCacheLock.lock()
+        if let cached = iconCache[key] {
+            iconCacheLock.unlock()
+            return (cached, true)
+        }
+        let image = app.icon ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)!
+        iconCache[key] = image
+        iconCacheLock.unlock()
+        return (image, false)
     }
 
     private static func isOnCurrentDisplay(_ windowFrame: CGRect) -> Bool {

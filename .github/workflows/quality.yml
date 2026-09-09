@@ -1,0 +1,35 @@
+name: Quality
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-13
+            architecture: Intel
+          - os: macos-14
+            architecture: Apple Silicon
+          - os: macos-15
+            architecture: Apple Silicon
+          - os: macos-latest
+            architecture: Current Apple Silicon runner
+    runs-on: ${{ matrix.os }}
+    name: Swift tests (${{ matrix.os }}, ${{ matrix.architecture }})
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Report runner architecture
+        run: uname -m
+
+      - name: Run unit and interaction tests
+        run: swift test --parallel
+
+      - name: Build release product
+        run: swift build -c release

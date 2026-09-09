@@ -34,7 +34,7 @@
 - [x] Document uninstall, permissions reset, and troubleshooting.
 
 ## Quality
-- [ ] Unit test window filtering, MRU ordering, shortcut persistence, and F-key mapping.
-- [ ] Add UI tests for cycling, canceling, committing, and same-app window selection.
-- [ ] Test macOS 13 through the current macOS release on Intel and Apple Silicon.
-- [ ] Profile window enumeration and cache icons to keep the overlay instant.
+- [x] Unit test window filtering, MRU ordering, shortcut persistence, and F-key mapping.
+- [x] Add UI tests for cycling, canceling, committing, and same-app window selection.
+- [x] Test macOS 13 through the current macOS release on Intel and Apple Silicon.
+- [x] Profile window enumeration and cache icons to keep the overlay instant.
