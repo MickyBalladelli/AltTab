@@ -9,12 +9,12 @@
 - [x] Replace the demo settings controls with persisted settings backed by `UserDefaults`.
 
 ## Customization
-- [ ] Choose switcher contents: applications, windows, spaces, full-screen apps, or a mixed view.
-- [ ] Configure thumbnail size, icon size, columns, labels, corner radius, opacity, accent color, and background blur.
-- [ ] Add per-app exclusions and a "show only windows on this display" option.
-- [ ] Add configurable activation shortcut, including right/left Option and Command-based alternatives.
-- [ ] Build an F1-F12 editor: record a key, choose a running app, choose a bundle ID, clear a slot, and import/export bindings.
-- [ ] Add optional "hold key to preview, release to switch" behavior.
+- [x] Choose switcher contents: applications, windows, spaces, full-screen apps, or a mixed view.
+- [x] Configure thumbnail size, icon size, columns, labels, corner radius, opacity, accent color, and background blur.
+- [x] Add per-app exclusions and a "show only windows on this display" option.
+- [x] Add configurable activation shortcut, including right/left Option and Command-based alternatives.
+- [x] Build an F1-F12 editor: record a key, choose a running app, choose a bundle ID, clear a slot, and import/export bindings.
+- [x] Add optional "hold key to preview, release to switch" behavior.
 
 ## Must-have Mac features
 - [ ] Restore the last-used window order and make MRU ordering predictable.

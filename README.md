@@ -33,7 +33,7 @@ On first launch, AltTab detects missing Accessibility permission and offers a bu
 
 The switcher supports Option-Tab cycling, Option-Shift-Tab reverse cycling, arrow keys, number selection, Return, Escape, and mouse selection. It activates the selected window, including a specific window when several belong to one app.
 
-Window filters and excluded bundle IDs are persisted in `UserDefaults` from the Settings window. By default, utility and minimized windows are hidden.
+The Settings window saves switcher contents, thumbnail/icon sizes, columns, labels, corner radius, opacity, accent color, blur, display filtering, activation shortcut, hold-to-preview, window filters, and excluded bundle IDs in `UserDefaults`. By default, utility and minimized windows are hidden. The F1-F12 editor also supports recording triggers plus JSON import/export.
 
 ## F1-F12 quick app slots
 
@@ -43,7 +43,7 @@ The shortcut engine reads bundle identifiers from `UserDefaults`:
 defaults write com.alttab.AltTab AltTab.quickSlot.1 com.apple.Safari
 ```
 
-Slots `1` through `12` map to F1 through F12. The settings UI for editing these bindings is tracked in [TODO.md](TODO.md).
+Slots `1` through `12` start as F1 through F12. Edit their triggers and app bundle IDs in the Settings window's F1-F12 editor.
 
 ## Homebrew
 

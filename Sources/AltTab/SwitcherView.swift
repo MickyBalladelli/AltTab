@@ -1,43 +1,71 @@
 import AppKit
 
 final class SwitcherView: NSView {
-    var items: [WindowItem] = [] { didSet { needsDisplay = true } }
+    var items: [SwitcherItem] = [] { didSet { needsDisplay = true } }
     var selectedIndex = 0 { didSet { needsDisplay = true } }
     var onItemSelected: ((Int) -> Void)?
     var onItemCommitted: (() -> Void)?
 
-    private let maximumVisibleItems = 5
-    private let cardWidth: CGFloat = 108
-    private let cardHeight: CGFloat = 125
-    private let cardGap: CGFloat = 10
+    private static let minimumCardWidth: CGFloat = 112
+    private static let cardGap: CGFloat = 10
+
+    static func preferredSize(for itemCount: Int) -> NSSize {
+        let columns = max(1, min(SettingsStore.columns, 10))
+        let visibleCount = max(1, min(itemCount, columns))
+        let thumbnailSize = CGFloat(SettingsStore.thumbnailSize)
+        let cardWidth = max(minimumCardWidth, thumbnailSize + 42)
+        let cardHeight = SettingsStore.showLabels ? max(130, thumbnailSize + 82) : max(108, thumbnailSize + 38)
+        let width = CGFloat(visibleCount) * cardWidth + CGFloat(max(0, visibleCount - 1)) * cardGap + 36
+        return NSSize(width: max(width, 320), height: cardHeight + 48)
+    }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor(calibratedWhite: 0.08, alpha: 0.96).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: 18, yRadius: 18).fill()
-        let visibleRange = visibleRange()
-        let totalWidth = CGFloat(visibleRange.count) * cardWidth + CGFloat(max(0, visibleRange.count - 1)) * cardGap
-        var x = (bounds.width - totalWidth) / 2
-        for index in visibleRange {
-            let item = items[index]
-            let rect = NSRect(x: x, y: 23, width: cardWidth, height: cardHeight)
-            if index == selectedIndex {
-                NSColor.controlAccentColor.setFill()
-                NSBezierPath(roundedRect: rect.insetBy(dx: -3, dy: -3), xRadius: 12, yRadius: 12).fill()
-            }
-            NSColor(calibratedWhite: 0.16, alpha: 1).setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 10, yRadius: 10).fill()
-            item.icon.draw(in: NSRect(x: x + 30, y: 78, width: 48, height: 48), from: .zero, operation: .sourceOver, fraction: 1)
-            let appLabel = (item.app.localizedName ?? "App") as NSString
-            let appAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.white]
-            appLabel.draw(in: NSRect(x: x + 7, y: 51, width: cardWidth - 14, height: 16), withAttributes: appAttributes)
+        let radius = CGFloat(SettingsStore.cornerRadius)
+        let opacity = CGFloat(SettingsStore.opacity)
+        NSColor(calibratedWhite: 0.08, alpha: opacity).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
 
-            let titleLabel = item.title as NSString
-            let titleAttributes: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor]
-            titleLabel.draw(in: NSRect(x: x + 7, y: 35, width: cardWidth - 14, height: 15), withAttributes: titleAttributes)
-            x += cardWidth + cardGap
+        let range = visibleRange()
+        let cardWidth = Self.cardWidth
+        let cardHeight = Self.cardHeight
+        let totalWidth = CGFloat(range.count) * cardWidth + CGFloat(max(0, range.count - 1)) * Self.cardGap
+        var x = (bounds.width - totalWidth) / 2
+
+        for index in range {
+            let item = items[index]
+            let rect = NSRect(x: x, y: 29, width: cardWidth, height: cardHeight)
+            let cardRadius = max(6, radius - 4)
+            if index == selectedIndex {
+                (NSColor(hex: SettingsStore.accentColorHex) ?? .controlAccentColor).setFill()
+                NSBezierPath(roundedRect: rect.insetBy(dx: -3, dy: -3), xRadius: cardRadius + 3, yRadius: cardRadius + 3).fill()
+            }
+
+            NSColor(calibratedWhite: 0.16, alpha: 1).setFill()
+            NSBezierPath(roundedRect: rect, xRadius: cardRadius, yRadius: cardRadius).fill()
+            drawImage(for: item, in: rect)
+
+            if SettingsStore.showLabels {
+                let appLabel = item.title as NSString
+                let appAttributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 12, weight: .medium),
+                    .foregroundColor: NSColor.white,
+                    .paragraphStyle: centeredParagraphStyle()
+                ]
+                appLabel.draw(in: NSRect(x: rect.minX + 7, y: rect.minY + 30, width: rect.width - 14, height: 17), withAttributes: appAttributes)
+
+                let subtitleLabel = item.subtitle as NSString
+                let subtitleAttributes: [NSAttributedString.Key: Any] = [
+                    .font: NSFont.systemFont(ofSize: 10),
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                    .paragraphStyle: centeredParagraphStyle()
+                ]
+                subtitleLabel.draw(in: NSRect(x: rect.minX + 7, y: rect.minY + 13, width: rect.width - 14, height: 15), withAttributes: subtitleAttributes)
+            }
+            x += cardWidth + Self.cardGap
         }
+
         let hint = "Option-Tab cycle    Shift reverse    Arrows / 1-9 select    Return switch    Esc cancel"
-        (hint as NSString).draw(at: NSPoint(x: 18, y: 7), withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor])
+        (hint as NSString).draw(at: NSPoint(x: 18, y: 9), withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor])
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -47,8 +75,42 @@ final class SwitcherView: NSView {
         onItemCommitted?()
     }
 
+    private static var cardWidth: CGFloat {
+        max(minimumCardWidth, CGFloat(SettingsStore.thumbnailSize) + 42)
+    }
+
+    private static var cardHeight: CGFloat {
+        SettingsStore.showLabels ? max(130, CGFloat(SettingsStore.thumbnailSize) + 82) : max(108, CGFloat(SettingsStore.thumbnailSize) + 38)
+    }
+
+    private func drawImage(for item: SwitcherItem, in rect: NSRect) {
+        let iconSize = CGFloat(SettingsStore.iconSize)
+        if let thumbnail = item.thumbnail {
+            let thumbnailSize = CGFloat(SettingsStore.thumbnailSize)
+            let thumbnailRect = NSRect(
+                x: rect.midX - thumbnailSize / 2,
+                y: rect.maxY - thumbnailSize - 13,
+                width: thumbnailSize,
+                height: thumbnailSize
+            )
+            thumbnail.draw(in: thumbnailRect, from: .zero, operation: .sourceOver, fraction: 1)
+
+            let badgeSize = min(iconSize, 28)
+            item.icon.draw(in: NSRect(x: thumbnailRect.maxX - badgeSize + 4, y: thumbnailRect.minY - 4, width: badgeSize, height: badgeSize), from: .zero, operation: .sourceOver, fraction: 1)
+        } else {
+            let iconRect = NSRect(
+                x: rect.midX - iconSize / 2,
+                y: rect.maxY - iconSize - 16,
+                width: iconSize,
+                height: iconSize
+            )
+            item.icon.draw(in: iconRect, from: .zero, operation: .sourceOver, fraction: 1)
+        }
+    }
+
     private func visibleRange() -> Range<Int> {
         guard !items.isEmpty else { return 0..<0 }
+        let maximumVisibleItems = max(1, min(SettingsStore.columns, 10))
         let count = min(items.count, maximumVisibleItems)
         guard items.count > maximumVisibleItems else { return 0..<count }
 
@@ -60,14 +122,22 @@ final class SwitcherView: NSView {
     private func itemIndex(at point: NSPoint) -> Int? {
         let range = visibleRange()
         guard !range.isEmpty else { return nil }
-        let totalWidth = CGFloat(range.count) * cardWidth + CGFloat(max(0, range.count - 1)) * cardGap
+        let totalWidth = CGFloat(range.count) * Self.cardWidth + CGFloat(max(0, range.count - 1)) * Self.cardGap
         let startX = (bounds.width - totalWidth) / 2
-        guard point.y >= 23, point.y <= 23 + cardHeight else { return nil }
+        let cardHeight = Self.cardHeight
+        guard point.y >= 29, point.y <= 29 + cardHeight else { return nil }
 
-        let position = Int((point.x - startX) / (cardWidth + cardGap))
+        let position = Int((point.x - startX) / (Self.cardWidth + Self.cardGap))
         guard range.contains(range.lowerBound + position) else { return nil }
-        let cardStart = startX + CGFloat(position) * (cardWidth + cardGap)
-        guard point.x >= cardStart, point.x <= cardStart + cardWidth else { return nil }
+        let cardStart = startX + CGFloat(position) * (Self.cardWidth + Self.cardGap)
+        guard point.x >= cardStart, point.x <= cardStart + Self.cardWidth else { return nil }
         return range.lowerBound + position
+    }
+
+    private func centeredParagraphStyle() -> NSParagraphStyle {
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        style.lineBreakMode = .byTruncatingTail
+        return style
     }
 }

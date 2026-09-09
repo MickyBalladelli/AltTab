@@ -6,8 +6,11 @@ struct WindowItem {
     let app: NSRunningApplication
     let title: String
     let icon: NSImage
+    let thumbnail: NSImage?
     let isMinimized: Bool
     let frame: CGRect
+    let workspaceID: Int?
+    let isFullScreen: Bool
 
     func activate() {
         app.activate(options: [.activateIgnoringOtherApps])
@@ -45,11 +48,105 @@ final class WindowCatalog {
 
     private static let windowNumberAttribute = "AXWindowNumber" as CFString
     private static let utilitySubrole = "AXUtilityWindow"
+    private static let workspaceKey = "kCGWindowWorkspace"
 
-    static func visibleWindows() -> [WindowItem] {
+    static func items(for mode: SwitcherContentMode) -> [SwitcherItem] {
+        switch mode {
+        case .applications:
+            return applicationItems(from: visibleWindows())
+        case .windows:
+            return visibleWindows().map { windowItem($0) }
+        case .spaces:
+            return spaceItems(from: allWindows())
+        case .fullScreenApps:
+            return fullScreenAppItems(from: visibleWindows())
+        case .mixed:
+            let windows = visibleWindows()
+            return applicationItems(from: windows) + windows.map { windowItem($0) } + spaceItems(from: allWindows())
+        }
+    }
+
+    private static func applicationItems(from windows: [WindowItem]) -> [SwitcherItem] {
+        var seen = Set<String>()
+        return windows.compactMap { window in
+            let identifier = window.app.bundleIdentifier ?? "pid:\(window.app.processIdentifier)"
+            guard seen.insert(identifier).inserted else { return nil }
+            return SwitcherItem(
+                identifier: "app:\(identifier)",
+                title: window.app.localizedName ?? "Application",
+                subtitle: "Application",
+                app: window.app,
+                window: nil,
+                icon: window.icon,
+                kind: .applications
+            )
+        }
+    }
+
+    private static func windowItem(_ window: WindowItem) -> SwitcherItem {
+        SwitcherItem(
+            identifier: "window:\(window.windowID)",
+            title: window.title,
+            subtitle: window.app.localizedName ?? "Window",
+            app: window.app,
+            window: window,
+            icon: window.icon,
+            kind: .windows
+        )
+    }
+
+    private static func fullScreenAppItems(from windows: [WindowItem]) -> [SwitcherItem] {
+        var seen = Set<String>()
+        return windows.filter { $0.isFullScreen }.compactMap { window in
+            let identifier = window.app.bundleIdentifier ?? "pid:\(window.app.processIdentifier)"
+            guard seen.insert(identifier).inserted else { return nil }
+            return SwitcherItem(
+                identifier: "fullscreen:\(identifier)",
+                title: window.app.localizedName ?? "Full-screen app",
+                subtitle: "Full-screen app",
+                app: window.app,
+                window: window,
+                icon: window.icon,
+                kind: .fullScreenApps
+            )
+        }
+    }
+
+    private static func spaceItems(from windows: [WindowItem]) -> [SwitcherItem] {
+        var representatives: [Int: WindowItem] = [:]
+        for window in windows {
+            guard let workspaceID = window.workspaceID else { continue }
+            if representatives[workspaceID] == nil {
+                representatives[workspaceID] = window
+            }
+        }
+
+        return representatives.keys.sorted().enumerated().compactMap { index, workspaceID in
+            guard let window = representatives[workspaceID] else { return nil }
+            return SwitcherItem(
+                identifier: "space:\(workspaceID)",
+                title: "Space \(index + 1)",
+                subtitle: "Desktop",
+                app: window.app,
+                window: window,
+                icon: NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Space") ?? window.icon,
+                kind: .spaces
+            )
+        }
+    }
+
+    private static func visibleWindows() -> [WindowItem] {
+        enumerateWindows(includeOffScreen: false)
+    }
+
+    private static func allWindows() -> [WindowItem] {
+        enumerateWindows(includeOffScreen: true)
+    }
+
+    private static func enumerateWindows(includeOffScreen: Bool) -> [WindowItem] {
         SettingsStore.registerDefaults()
 
-        let listOptions: CGWindowListOption = SettingsStore.showMinimizedWindows
+        let listOptions: CGWindowListOption = includeOffScreen || SettingsStore.showMinimizedWindows
             ? [.optionAll, .excludeDesktopElements]
             : [.optionOnScreenOnly, .excludeDesktopElements]
         guard let list = CGWindowListCopyWindowInfo(listOptions, kCGNullWindowID) as? [[String: Any]] else { return [] }
@@ -74,6 +171,7 @@ final class WindowCatalog {
                 width: bounds["Width"] ?? 0,
                 height: bounds["Height"] ?? 0
             )
+            guard !SettingsStore.onlyCurrentDisplay || isOnCurrentDisplay(windowFrame) else { return nil }
             let windows = accessibilityCache[ownerPID] ?? accessibilityWindows(for: app)
             accessibilityCache[ownerPID] = windows
             let accessibilityWindow = windows.first { $0.id == windowID } ?? windows.first { candidate in
@@ -83,10 +181,10 @@ final class WindowCatalog {
             let isOnScreen = info[kCGWindowIsOnscreen as String] as? Bool ?? true
             let isMinimized = accessibilityWindow?.isMinimized ?? !isOnScreen
 
-            if !SettingsStore.showMinimizedWindows && (!isOnScreen || isMinimized) {
+            if !includeOffScreen && !SettingsStore.showMinimizedWindows && (!isOnScreen || isMinimized) {
                 return nil
             }
-            if SettingsStore.showMinimizedWindows && !isOnScreen && !isMinimized {
+            if !includeOffScreen && SettingsStore.showMinimizedWindows && !isOnScreen && !isMinimized {
                 return nil
             }
             if !SettingsStore.showUtilityWindows && accessibilityWindow?.isUtility == true {
@@ -96,8 +194,30 @@ final class WindowCatalog {
             let title = info[kCGWindowName as String] as? String ?? app.localizedName ?? "Window"
             let resolvedTitle = title.isEmpty ? (app.localizedName ?? "Window") : title
             let icon = app.icon ?? NSImage(systemSymbolName: "app", accessibilityDescription: nil)!
-            return WindowItem(windowID: windowID, app: app, title: resolvedTitle, icon: icon, isMinimized: isMinimized, frame: windowFrame)
+            let thumbnail = CGWindowListCreateImage(.null, [.optionIncludingWindow], windowID, [.bestResolution, .boundsIgnoreFraming]).map {
+                NSImage(cgImage: $0, size: NSSize(width: windowFrame.width, height: windowFrame.height))
+            }
+            let isFullScreen = NSScreen.screens.contains { screen in
+                abs(windowFrame.width - screen.frame.width) < 4 && abs(windowFrame.height - screen.frame.height) < 4
+            }
+            return WindowItem(
+                windowID: windowID,
+                app: app,
+                title: resolvedTitle,
+                icon: icon,
+                thumbnail: thumbnail,
+                isMinimized: isMinimized,
+                frame: windowFrame,
+                workspaceID: (info[workspaceKey] as? NSNumber)?.intValue,
+                isFullScreen: isFullScreen
+            )
         }
+    }
+
+    private static func isOnCurrentDisplay(_ windowFrame: CGRect) -> Bool {
+        guard let screen = NSScreen.main,
+              let displayNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return true }
+        return windowFrame.intersects(CGDisplayBounds(displayNumber))
     }
 
     fileprivate static func windowID(for window: AXUIElement) -> CGWindowID? {
