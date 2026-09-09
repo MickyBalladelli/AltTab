@@ -279,6 +279,11 @@ final class SettingsView: NSView {
     @objc private func changeActivationShortcut(_ sender: NSPopUpButton) {
         guard let rawValue = sender.selectedItem?.representedObject as? String,
               let shortcut = ActivationShortcut(rawValue: rawValue) else { return }
+        if let conflict = ShortcutStore.conflict(withActivationShortcut: shortcut) {
+            sender.selectItem(withTitle: SettingsStore.activationShortcut.title)
+            showError(conflict)
+            return
+        }
         SettingsStore.activationShortcut = shortcut
     }
 
@@ -326,6 +331,15 @@ final class SettingsView: NSView {
     private func refreshPermissionStatus() {
         permissionStatusLabel.stringValue = AccessibilityController.isTrusted ? "Accessibility: Granted" : "Accessibility: Needed"
         permissionStatusLabel.textColor = AccessibilityController.isTrusted ? .systemGreen : .systemOrange
+    }
+
+    private func showError(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Shortcut conflict"
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
     }
 
     private func makeLabel(_ text: String, size: CGFloat, weight: NSFont.Weight) -> NSTextField {

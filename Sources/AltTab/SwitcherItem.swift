@@ -18,11 +18,12 @@ struct SwitcherItem {
         }
     }
 
-    func activate() {
+    @discardableResult
+    func activate() -> Bool {
         if let window {
-            window.activate()
+            return window.activate()
         } else {
-            app?.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+            return app?.activate(options: [.activateAllWindows, .activateIgnoringOtherApps]) ?? false
         }
     }
 }

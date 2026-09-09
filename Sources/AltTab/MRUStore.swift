@@ -13,8 +13,18 @@ enum MRUStore {
     }
 
     static func ordered(_ items: [SwitcherItem], savedIdentifiers: [String]) -> [SwitcherItem] {
-        let itemByIdentifier = Dictionary(uniqueKeysWithValues: items.map { ($0.identifier, $0) })
-        let saved = savedIdentifiers.compactMap { itemByIdentifier[$0] }
+        var itemByIdentifier: [String: SwitcherItem] = [:]
+        for item in items {
+            itemByIdentifier[item.identifier] = item
+            if let window = item.window {
+                itemByIdentifier["window:\(window.windowID)"] = item
+            }
+        }
+        var seenIdentifiers = Set<String>()
+        let saved = savedIdentifiers.compactMap { identifier -> SwitcherItem? in
+            guard let item = itemByIdentifier[identifier], seenIdentifiers.insert(item.identifier).inserted else { return nil }
+            return item
+        }
         let savedSet = Set(saved.map(\.identifier))
         let newItems = items.filter { !savedSet.contains($0.identifier) }
         return saved + newItems
@@ -22,7 +32,8 @@ enum MRUStore {
 
     static func record(_ item: SwitcherItem) {
         var identifiers = savedIdentifiers
-        identifiers.removeAll { $0 == item.identifier }
+        let identifiersToReplace = Set([item.identifier] + (item.window.map { ["window:\($0.windowID)"] } ?? []))
+        identifiers.removeAll { identifiersToReplace.contains($0) }
         identifiers.insert(item.identifier, at: 0)
         UserDefaults.standard.set(Array(identifiers.prefix(maximumEntries)), forKey: key)
     }

@@ -38,3 +38,37 @@
 - [x] Add UI tests for cycling, canceling, committing, and same-app window selection.
 - [x] Test macOS 13 through the current macOS release on Intel and Apple Silicon.
 - [x] Profile window enumeration and cache icons to keep the overlay instant.
+
+## Improvements
+
+### Reliability and safety
+- [ ] (P0) Replace volatile CG window IDs with a stable app/title/frame fallback for MRU entries across relaunches.
+- [ ] (P0) Handle windows that close, move, or lose Accessibility access while the switcher is open.
+- [ ] (P0) Make close and move actions report failure clearly, with confirmation for close.
+- [ ] (P1) Add a safe recovery path when Accessibility permission is revoked during use.
+- [ ] (P1) Detect activation-shortcut conflicts before saving a binding.
+
+### Speed
+- [ ] (P0) Move window enumeration and thumbnail capture off the main thread.
+- [ ] (P1) Add thumbnail caching with size-aware invalidation and memory limits.
+- [ ] (P1) Debounce repeated refreshes and avoid rebuilding unchanged switcher items.
+- [ ] (P2) Add a repeatable performance benchmark for cold and warm switcher opens.
+
+### Keyboard and window workflow
+- [ ] (P1) Add fuzzy search, recent search terms, and a visible result count.
+- [ ] (P1) Add a contextual menu for actions on the currently selected window.
+- [ ] (P1) Show clearer Space and display names, including the target display before a move.
+- [ ] (P2) Add configurable shortcuts for every window action.
+- [ ] (P2) Add launch-at-login and an option to reopen the last switcher mode.
+
+### Accessibility and settings
+- [ ] (P0) Expose every switcher card as a VoiceOver element with title, app, selected state, and keyboard hint.
+- [ ] (P1) Add full keyboard navigation and focus restoration to Settings, Diagnostics, and the Command Palette.
+- [ ] (P1) Add settings export/import for all preferences, not only F1-F12 bindings.
+- [ ] (P2) Add per-app profiles for content mode, filters, and appearance.
+
+### Release and maintenance
+- [ ] (P1) Add an opt-in automatic update download after signature and notarization verification.
+- [ ] (P1) Add release smoke checks for the DMG, cask URL, checksum, and install/uninstall path.
+- [ ] (P2) Add a reproducible release checklist and certificate-rotation instructions.
+- [ ] (P2) Add local crash diagnostics without collecting or transmitting telemetry.

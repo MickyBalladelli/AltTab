@@ -8,6 +8,10 @@ struct SwitcherState {
     private(set) var isVisible = false
 
     var hasSearchQuery: Bool { !searchQuery.isEmpty }
+    var selectedItem: SwitcherItem? {
+        guard items.indices.contains(selectedIndex) else { return nil }
+        return items[selectedIndex]
+    }
 
     @discardableResult
     mutating func begin(items: [SwitcherItem]) -> Bool {
@@ -75,6 +79,18 @@ struct SwitcherState {
     mutating func cancel() {
         isVisible = false
         searchQuery = ""
+    }
+
+    @discardableResult
+    mutating func removeSelected() -> Bool {
+        guard let selectedItem else { return false }
+        items.removeAll { $0.identifier == selectedItem.identifier }
+        sourceItems.removeAll { $0.identifier == selectedItem.identifier }
+        selectedIndex = min(selectedIndex, max(0, items.count - 1))
+        if items.isEmpty {
+            cancel()
+        }
+        return true
     }
 
     mutating func commit() -> SwitcherItem? {

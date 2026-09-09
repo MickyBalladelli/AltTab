@@ -155,12 +155,21 @@ final class QuickSlotsView: NSView {
         let bundleID = sender.selectedItem?.representedObject as? String ?? ""
         guard let row = rows.first(where: { $0.slot == sender.tag }) else { return }
         row.bundleField.stringValue = bundleID
-        ShortcutStore.setBundleIdentifier(bundleID, for: sender.tag)
+        guard ShortcutStore.setBundleIdentifier(bundleID, for: sender.tag) else {
+            showError("This app cannot use \(ShortcutStore.displayName(for: sender.tag)) because its trigger conflicts with another active binding.")
+            reloadRows()
+            return
+        }
     }
 
     @objc private func saveBundle(_ sender: NSButton) {
         guard let row = rows.first(where: { $0.slot == sender.tag }) else { return }
-        ShortcutStore.setBundleIdentifier(row.bundleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines), for: row.slot)
+        let bundleID = row.bundleField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard ShortcutStore.setBundleIdentifier(bundleID, for: row.slot) else {
+            showError("This app cannot use \(ShortcutStore.displayName(for: row.slot)) because its trigger conflicts with another active binding.")
+            reloadRows()
+            return
+        }
         reloadRows()
     }
 
@@ -188,7 +197,12 @@ final class QuickSlotsView: NSView {
     private func finishRecording(_ event: NSEvent) {
         guard let slot = recordingSlot else { return }
         let modifiers = event.modifierFlags.intersection([.command, .option, .control, .shift]).rawValue
-        ShortcutStore.setTrigger(keyCode: event.keyCode, modifiers: modifiers, for: slot)
+        guard ShortcutStore.setTrigger(keyCode: event.keyCode, modifiers: modifiers, for: slot) else {
+            let reason = ShortcutStore.conflict(for: slot, keyCode: event.keyCode, modifiers: modifiers) ?? "trigger conflict"
+            stopRecording()
+            showError("Cannot save this trigger: \(reason)")
+            return
+        }
         stopRecording()
         reloadRows()
     }

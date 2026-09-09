@@ -77,7 +77,7 @@ final class CommandPaletteWindowController: NSWindowController, NSTableViewDataS
         if let frontWindow = WindowCatalog.items(for: .windows).first {
             for action in WindowAction.allCases {
                 result.append(Command(title: "\(action.title): \(frontWindow.title)", detail: frontWindow.subtitle, action: {
-                    WindowActionService.perform(action, on: frontWindow)
+                    WindowActionService.performWithConfirmation(action, on: frontWindow)
                 }))
             }
         }

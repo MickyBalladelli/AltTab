@@ -19,6 +19,16 @@ struct WindowItem {
     let workspaceID: Int?
     let isFullScreen: Bool
 
+    var stableIdentifier: String {
+        let bundleIdentifier = app.bundleIdentifier ?? "pid:\(app.processIdentifier)"
+        let safeTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "|", with: "/")
+        let x = Int(frame.origin.x.rounded())
+        let y = Int(frame.origin.y.rounded())
+        let width = Int(frame.width.rounded())
+        let height = Int(frame.height.rounded())
+        return "window:\(bundleIdentifier):\(safeTitle):\(x):\(y):\(width):\(height)"
+    }
+
     func accessibilityElement() -> AXUIElement? {
         let application = AXUIElementCreateApplication(app.processIdentifier)
         var value: CFTypeRef?
@@ -35,13 +45,14 @@ struct WindowItem {
         }
     }
 
-    func activate() {
-        app.activate(options: [.activateIgnoringOtherApps])
-        guard let window = accessibilityElement() else { return }
+    @discardableResult
+    func activate() -> Bool {
+        _ = app.activate(options: [.activateIgnoringOtherApps])
+        guard let window = accessibilityElement() else { return false }
         if isMinimized {
-            AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
+            guard AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse) == .success else { return false }
         }
-        AXUIElementPerformAction(window, kAXRaiseAction as CFString)
+        return AXUIElementPerformAction(window, kAXRaiseAction as CFString) == .success
     }
 }
 
@@ -96,7 +107,7 @@ final class WindowCatalog {
 
     private static func windowItem(_ window: WindowItem) -> SwitcherItem {
         SwitcherItem(
-            identifier: "window:\(window.windowID)",
+            identifier: window.stableIdentifier,
             title: window.title,
             subtitle: window.app.localizedName ?? "Window",
             app: window.app,

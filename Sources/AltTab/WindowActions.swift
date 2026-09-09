@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 
-enum WindowAction: CaseIterable {
+enum WindowAction: CaseIterable, Equatable {
     case minimize
     case close
     case hideApp
@@ -22,23 +22,48 @@ enum WindowAction: CaseIterable {
 enum WindowActionService {
     @discardableResult
     static func perform(_ action: WindowAction, on item: SwitcherItem) -> Bool {
+        let succeeded: Bool
         switch action {
         case .hideApp:
-            return item.app?.hide() ?? false
+            succeeded = item.app?.hide() ?? false
         case .minimize:
-            guard let window = item.window, let element = window.accessibilityElement() else { return false }
-            return AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanTrue) == .success
+            guard let window = item.window, let element = window.accessibilityElement() else {
+                return reportFailure(action)
+            }
+            succeeded = AXUIElementSetAttributeValue(element, kAXMinimizedAttribute as CFString, kCFBooleanTrue) == .success
         case .close:
-            guard let window = item.window, let element = window.accessibilityElement() else { return false }
+            guard let window = item.window, let element = window.accessibilityElement() else {
+                return reportFailure(action)
+            }
             var closeButton: CFTypeRef?
             guard AXUIElementCopyAttributeValue(element, kAXCloseButtonAttribute as CFString, &closeButton) == .success,
-                  let button = closeButton else { return false }
-            return AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString) == .success
+                  let button = closeButton as? AXUIElement else {
+                return reportFailure(action)
+            }
+            succeeded = AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
         case .moveToDisplay:
-            return moveToNextDisplay(item)
+            succeeded = moveToNextDisplay(item)
         case .moveToSpace:
-            return moveToNextSpace(item)
+            succeeded = moveToNextSpace(item)
         }
+        if !succeeded {
+            return reportFailure(action)
+        }
+        return true
+    }
+
+    @discardableResult
+    static func performWithConfirmation(_ action: WindowAction, on item: SwitcherItem) -> Bool {
+        if action == .close {
+            let alert = NSAlert()
+            alert.messageText = "Close window?"
+            alert.informativeText = "Close \(item.title)? Any unsaved changes may be lost."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Close")
+            alert.addButton(withTitle: "Cancel")
+            guard alert.runModal() == .alertFirstButtonReturn else { return false }
+        }
+        return perform(action, on: item)
     }
 
     private static func moveToNextDisplay(_ item: SwitcherItem) -> Bool {
@@ -64,19 +89,31 @@ enum WindowActionService {
 
     private static func moveToNextSpace(_ item: SwitcherItem) -> Bool {
         guard let window = item.window else { return false }
-        window.activate()
-        postSpaceMoveShortcut()
-        return true
+        guard window.activate() else { return false }
+        return postSpaceMoveShortcut()
     }
 
-    private static func postSpaceMoveShortcut() {
+    private static func postSpaceMoveShortcut() -> Bool {
         guard let source = CGEventSource(stateID: .combinedSessionState),
               let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 124, keyDown: true),
-              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 124, keyDown: false) else { return }
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 124, keyDown: false) else { return false }
         let flags: CGEventFlags = [.maskControl, .maskShift]
         keyDown.flags = flags
         keyUp.flags = flags
         keyDown.post(tap: .cghidEventTap)
         keyUp.post(tap: .cghidEventTap)
+        return true
+    }
+
+    private static func reportFailure(_ action: WindowAction) -> Bool {
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Could not \(action.title.lowercased())"
+            alert.informativeText = "macOS did not allow AltTab to complete this action. Check Accessibility permission and try again."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "OK")
+            alert.runModal()
+        }
+        return false
     }
 }

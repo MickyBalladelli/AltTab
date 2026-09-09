@@ -11,6 +11,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         SettingsStore.registerDefaults()
+        switcher.onAccessibilityLost = { [weak self] in
+            self?.recoverAccessibility()
+        }
+        switcher.onWindowActivationFailure = { [weak self] in
+            self?.showWindowActivationError()
+        }
         configureMenuBar()
         installKeyboardMonitors()
         accessibilityOnboarding.presentIfNeeded()
@@ -124,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if event.keyCode == 48,
            SettingsStore.activationShortcut.matches(flags: event.modifierFlags, pressedKeyCodes: pressedModifierKeyCodes) {
-            switcher.begin()
+            beginSwitcher()
             return true
         }
         return false
@@ -148,7 +154,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func showSwitcher() { switcher.begin() }
+    @objc private func showSwitcher() { beginSwitcher() }
     @objc private func showAccessibilitySettings() {
         if AccessibilityController.isTrusted {
             AccessibilityController.openSystemSettings()
@@ -160,11 +166,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func checkForUpdates() { UpdateController.shared.checkForUpdates() }
     @objc private func showCommandPalette() {
         commandPalette.show(
-            showSwitcher: { [weak self] in self?.switcher.begin() },
+            showSwitcher: { [weak self] in self?.beginSwitcher() },
             showSettings: { SettingsWindowController.shared.showWindow(nil) }
         )
     }
     @objc private func showDiagnostics() { DiagnosticsWindowController.shared.showWindow(nil) }
+
+    private func beginSwitcher() {
+        guard AccessibilityController.isTrusted else {
+            accessibilityOnboarding.showAlertIfNeeded()
+            return
+        }
+        switcher.begin()
+    }
+
+    private func recoverAccessibility() {
+        switcher.cancel()
+        accessibilityOnboarding.showAlertIfNeeded()
+    }
+
+    private func showWindowActivationError() {
+        let alert = NSAlert()
+        alert.messageText = "Window is no longer available"
+        alert.informativeText = "The window may have closed or moved while AltTab was open."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
 }
 
 enum ShortcutStore {
@@ -178,6 +206,16 @@ enum ShortcutStore {
         let bundleIdentifier: String?
         let keyCode: UInt16
         let modifiers: UInt
+    }
+
+    enum Error: LocalizedError {
+        case conflict(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .conflict(let message): return message
+            }
+        }
     }
 
     static func slot(for event: NSEvent) -> Int? {
@@ -199,13 +237,17 @@ enum ShortcutStore {
         UserDefaults.standard.string(forKey: keyPrefix + "\(slot)")
     }
 
-    static func setBundleIdentifier(_ bundleIdentifier: String?, for slot: Int) {
+    @discardableResult
+    static func setBundleIdentifier(_ bundleIdentifier: String?, for slot: Int) -> Bool {
         let key = keyPrefix + "\(slot)"
         if let bundleIdentifier, !bundleIdentifier.isEmpty {
+            let trigger = trigger(for: slot)
+            guard conflict(for: slot, keyCode: trigger.keyCode, modifiers: trigger.modifiers) == nil else { return false }
             UserDefaults.standard.set(bundleIdentifier, forKey: key)
         } else {
             UserDefaults.standard.removeObject(forKey: key)
         }
+        return true
     }
 
     static func defaultKeyCode(for slot: Int) -> UInt16? {
@@ -222,15 +264,48 @@ enum ShortcutStore {
         return (UInt16(UserDefaults.standard.integer(forKey: keyCodeKey)), UInt(UserDefaults.standard.integer(forKey: modifiersKey)))
     }
 
-    static func setTrigger(keyCode: UInt16, modifiers: UInt, for slot: Int) {
+    @discardableResult
+    static func setTrigger(keyCode: UInt16, modifiers: UInt, for slot: Int) -> Bool {
+        guard conflict(for: slot, keyCode: keyCode, modifiers: modifiers) == nil else { return false }
         UserDefaults.standard.set(Int(keyCode), forKey: keyPrefix + "\(slot)" + keyCodeSuffix)
         UserDefaults.standard.set(Int(modifiers), forKey: keyPrefix + "\(slot)" + modifiersSuffix)
+        return true
     }
 
     static func clear(slot: Int) {
         setBundleIdentifier(nil, for: slot)
         UserDefaults.standard.removeObject(forKey: keyPrefix + "\(slot)" + keyCodeSuffix)
         UserDefaults.standard.removeObject(forKey: keyPrefix + "\(slot)" + modifiersSuffix)
+    }
+
+    static func conflict(for slot: Int, keyCode: UInt16, modifiers: UInt) -> String? {
+        guard (1...12).contains(slot) else { return "That quick slot does not exist." }
+
+        let activationModifiers = SettingsStore.activationShortcut.modifierFlag.rawValue
+        if keyCode == 48 && modifiers == activationModifiers {
+            return "This trigger conflicts with AltTab's activation shortcut."
+        }
+
+        for otherSlot in 1...12 where otherSlot != slot {
+            guard UserDefaults.standard.string(forKey: keyPrefix + "\(otherSlot)") != nil else { continue }
+            let otherTrigger = trigger(for: otherSlot)
+            if otherTrigger.keyCode == keyCode && otherTrigger.modifiers == modifiers {
+                return "This trigger is already assigned to slot F\(otherSlot)."
+            }
+        }
+        return nil
+    }
+
+    static func conflict(withActivationShortcut shortcut: ActivationShortcut) -> String? {
+        let activationModifiers = shortcut.modifierFlag.rawValue
+        for slot in 1...12 {
+            guard UserDefaults.standard.string(forKey: keyPrefix + "\(slot)") != nil else { continue }
+            let trigger = trigger(for: slot)
+            if trigger.keyCode == 48 && trigger.modifiers == activationModifiers {
+                return "This activation shortcut conflicts with active quick slot F\(slot)."
+            }
+        }
+        return nil
     }
 
     static func displayName(for slot: Int) -> String {
@@ -274,8 +349,15 @@ enum ShortcutStore {
     static func importBindings(_ data: Data) throws {
         let bindings = try JSONDecoder().decode([Binding].self, from: data)
         for binding in bindings where (1...12).contains(binding.slot) {
-            setTrigger(keyCode: binding.keyCode, modifiers: binding.modifiers, for: binding.slot)
-            setBundleIdentifier(binding.bundleIdentifier, for: binding.slot)
+            guard setTrigger(keyCode: binding.keyCode, modifiers: binding.modifiers, for: binding.slot) else {
+                let reason = conflict(for: binding.slot, keyCode: binding.keyCode, modifiers: binding.modifiers) ?? "trigger conflict"
+                throw Error.conflict("Could not import slot F\(binding.slot): \(reason)")
+            }
+            guard setBundleIdentifier(binding.bundleIdentifier, for: binding.slot) else {
+                let trigger = trigger(for: binding.slot)
+                let reason = conflict(for: binding.slot, keyCode: trigger.keyCode, modifiers: trigger.modifiers) ?? "trigger conflict"
+                throw Error.conflict("Could not import slot F\(binding.slot): \(reason)")
+            }
         }
     }
 
@@ -285,6 +367,8 @@ enum ShortcutStore {
 }
 
 final class SwitcherController {
+    var onAccessibilityLost: (() -> Void)?
+    var onWindowActivationFailure: (() -> Void)?
     private var state = SwitcherState()
     private var panel: NSPanel?
     private var view: SwitcherView?
@@ -346,9 +430,14 @@ final class SwitcherController {
     func activateWindow(at index: Int) {
         let windows = MRUStore.order(WindowCatalog.items(for: .windows))
         guard windows.indices.contains(index) else { return }
+        guard windows[index].activate() else {
+            reportActivationFailure()
+            return
+        }
         MRUStore.record(windows[index])
-        windows[index].activate()
-        cancel()
+        if isVisible {
+            cancel()
+        }
     }
 
     static func numberIndex(for keyCode: UInt16) -> Int? {
@@ -358,9 +447,18 @@ final class SwitcherController {
     }
 
     func commit() {
-        guard let item = state.commit() else { cancel(); return }
+        guard let item = state.selectedItem else { cancel(); return }
+        guard item.activate() else {
+            state.removeSelected()
+            syncView()
+            if !state.isVisible {
+                panel?.orderOut(nil)
+            }
+            reportActivationFailure()
+            return
+        }
         MRUStore.record(item)
-        item.activate()
+        state.cancel()
         syncView()
         panel?.orderOut(nil)
     }
@@ -439,6 +537,14 @@ final class SwitcherController {
         view?.items = items
         view?.searchQuery = searchQuery
         view?.selectedIndex = selectedIndex
+    }
+
+    private func reportActivationFailure() {
+        if AccessibilityController.isTrusted {
+            onWindowActivationFailure?()
+        } else {
+            onAccessibilityLost?()
+        }
     }
 
     private func announceSelection() {
