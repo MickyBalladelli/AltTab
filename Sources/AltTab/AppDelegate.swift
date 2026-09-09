@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let paletteItem = NSMenuItem(title: "Command Palette...", action: #selector(showCommandPalette), keyEquivalent: "p")
         paletteItem.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(paletteItem)
+        menu.addItem(NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Accessibility Permission...", action: #selector(showAccessibilitySettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem(title: "Diagnostics & Permissions...", action: #selector(showDiagnostics), keyEquivalent: ""))
@@ -156,6 +157,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     @objc private func showSettings() { SettingsWindowController.shared.showWindow(nil) }
+    @objc private func checkForUpdates() { UpdateController.shared.checkForUpdates() }
     @objc private func showCommandPalette() {
         commandPalette.show(
             showSwitcher: { [weak self] in self?.switcher.begin() },

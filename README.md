@@ -49,11 +49,11 @@ Slots `1` through `12` start as F1 through F12. Edit their triggers and app bund
 
 ## Homebrew
 
-The intended release command is:
+Install from the Homebrew tap:
 
 ```sh
-brew tap alttab/tap
+brew tap MickyBalladelli/tap
 brew install --cask alt-tab
 ```
 
-The tap and signed notarized release still need to be published; see [TODO.md](TODO.md).
+Release builds are signed with Developer ID, notarized by Apple, and published as `AltTab.dmg` with a SHA-256 checksum. The menu bar's **Check for Updates...** command checks the latest signed release on demand. See [docs/DISTRIBUTION.md](docs/DISTRIBUTION.md) for release setup, uninstall, permission reset, and troubleshooting.

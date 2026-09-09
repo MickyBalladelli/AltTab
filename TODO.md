@@ -27,11 +27,11 @@
 - [x] Add telemetry-free diagnostics and a permissions/status page.
 
 ## Distribution
-- [ ] Create a GitHub release workflow for signed and notarized DMGs.
-- [ ] Publish a Homebrew tap and replace `Casks/alt-tab.rb` placeholders with release URLs and SHA-256 values.
-- [ ] Support `brew install --cask alt-tab` from the tap.
-- [ ] Add Sparkle or an equivalent signed update mechanism.
-- [ ] Document uninstall, permissions reset, and troubleshooting.
+- [x] Create a GitHub release workflow for signed and notarized DMGs.
+- [x] Publish a Homebrew tap and replace `Casks/alt-tab.rb` placeholders with release URLs and SHA-256 values.
+- [x] Support `brew install --cask alt-tab` from the tap.
+- [x] Add Sparkle or an equivalent signed update mechanism.
+- [x] Document uninstall, permissions reset, and troubleshooting.
 
 ## Quality
 - [ ] Unit test window filtering, MRU ordering, shortcut persistence, and F-key mapping.

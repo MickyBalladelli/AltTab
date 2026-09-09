@@ -1,0 +1,103 @@
+name: Release AltTab
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, without the leading v"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+      RELEASE_VERSION: ${{ inputs.version || github.ref_name }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Import Developer ID certificate
+        shell: zsh
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/alt-tab-signing.keychain-db"
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer-id.p12"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security default-keychain -s "$KEYCHAIN_PATH"
+
+      - name: Build signed DMG
+        shell: zsh
+        run: |
+          VERSION="${RELEASE_VERSION#v}"
+          ALT_TAB_VERSION="$VERSION" \
+          ALT_TAB_BUILD_NUMBER="$GITHUB_RUN_NUMBER" \
+          ALT_TAB_SIGNING_IDENTITY="$APPLE_SIGNING_IDENTITY" \
+          ./scripts/create-dmg.sh
+          codesign --verify --deep --strict build/AltTab.app
+          spctl --assess --type execute --context context:primary-signature build/AltTab.app
+
+      - name: Notarize and staple DMG
+        shell: zsh
+        run: |
+          xcrun notarytool submit build/AltTab.dmg \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --wait
+          xcrun stapler staple build/AltTab.dmg
+          xcrun stapler validate build/AltTab.dmg
+          shasum -a 256 build/AltTab.dmg > build/AltTab.dmg.sha256
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: zsh
+        run: |
+          VERSION="${RELEASE_VERSION#v}"
+          RELEASE_TAG="v$VERSION"
+          gh release create "$RELEASE_TAG" \
+            build/AltTab.dmg \
+            build/AltTab.dmg.sha256 \
+            --title "AltTab $VERSION" \
+            --generate-notes
+
+      - name: Publish Homebrew tap cask
+        if: ${{ env.HOMEBREW_TAP_TOKEN != '' }}
+        shell: bash
+        run: |
+          TAP_PATH="$RUNNER_TEMP/homebrew-tap"
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/MickyBalladelli/homebrew-tap.git" "$TAP_PATH"
+          CASK_PATH="$TAP_PATH/Casks/alt-tab.rb"
+          mkdir -p "$(dirname "$CASK_PATH")"
+          if [[ ! -f "$CASK_PATH" ]]; then
+            cp Casks/alt-tab.rb "$CASK_PATH"
+          fi
+          VERSION="${RELEASE_VERSION#v}"
+          SHA256="$(awk '{print $1}' build/AltTab.dmg.sha256)"
+          ./scripts/update-cask.sh "$VERSION" "$SHA256" "$CASK_PATH"
+          cd "$TAP_PATH"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add Casks/alt-tab.rb
+          git commit -m "alt-tab $VERSION" || true
+          git push
