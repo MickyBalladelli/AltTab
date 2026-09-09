@@ -1,11 +1,13 @@
 import AppKit
 
 final class SwitcherView: NSView {
-    var items: [SwitcherItem] = [] { didSet { needsDisplay = true } }
-    var selectedIndex = 0 { didSet { needsDisplay = true } }
-    var searchQuery = "" { didSet { needsDisplay = true } }
+    var items: [SwitcherItem] = [] { didSet { needsDisplay = true; updateAccessibilityValue() } }
+    var selectedIndex = 0 { didSet { needsDisplay = true; updateAccessibilityValue() } }
+    var searchQuery = "" { didSet { needsDisplay = true; updateAccessibilityValue() } }
+    var recentSearchTerms: [String] = [] { didSet { needsDisplay = true } }
     var onItemSelected: ((Int) -> Void)?
     var onItemCommitted: (() -> Void)?
+    var onContextMenu: ((Int) -> NSMenu?)?
 
     private static let minimumCardWidth: CGFloat = 112
     private static let cardGap: CGFloat = 10
@@ -51,10 +53,27 @@ final class SwitcherView: NSView {
             backgroundPath.stroke()
         }
 
-        let searchText = searchQuery.isEmpty ? "Type to search windows" : "Search: \(searchQuery)"
-        (searchText as NSString).draw(at: NSPoint(x: 18, y: bounds.height - 25), withAttributes: [
+        let searchText: String
+        if searchQuery.isEmpty {
+            let recent = recentSearchTerms.prefix(3).joined(separator: ", ")
+            searchText = recent.isEmpty ? "Type to search windows" : "Type to search windows · Recent: \(recent)"
+        } else {
+            searchText = "Search: \(searchQuery)"
+        }
+        let searchParagraph = NSMutableParagraphStyle()
+        searchParagraph.lineBreakMode = .byTruncatingTail
+        (searchText as NSString).draw(in: NSRect(x: 18, y: bounds.height - 31, width: bounds.width - 132, height: 18), withAttributes: [
             .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-            .foregroundColor: searchQuery.isEmpty ? NSColor.secondaryLabelColor : NSColor.labelColor
+            .foregroundColor: searchQuery.isEmpty ? NSColor.secondaryLabelColor : NSColor.labelColor,
+            .paragraphStyle: searchParagraph
+        ])
+        let resultText = "\(items.count) result\(items.count == 1 ? "" : "s")"
+        let resultParagraph = NSMutableParagraphStyle()
+        resultParagraph.alignment = .right
+        (resultText as NSString).draw(in: NSRect(x: bounds.width - 108, y: bounds.height - 31, width: 90, height: 18), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 11),
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .paragraphStyle: resultParagraph
         ])
 
         let range = visibleRange()
@@ -109,7 +128,7 @@ final class SwitcherView: NSView {
             )
         }
 
-        let hint = "Option-Tab cycle    Shift reverse    Arrows / 1-9 select    Return switch    Esc cancel"
+        let hint = "Option-Tab cycle    Option-↑↓ recent    Arrows / 1-9 select    Return switch    Esc cancel"
         (hint as NSString).draw(at: NSPoint(x: 18, y: 9), withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor])
     }
 
@@ -118,6 +137,13 @@ final class SwitcherView: NSView {
         guard let index = itemIndex(at: point) else { return }
         onItemSelected?(index)
         onItemCommitted?()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard let index = itemIndex(at: point) else { return }
+        onItemSelected?(index)
+        onContextMenu?(index)?.popUp(positioning: nil, at: point, in: self)
     }
 
     private static var cardWidth: CGFloat {
@@ -184,5 +210,10 @@ final class SwitcherView: NSView {
         style.alignment = .center
         style.lineBreakMode = .byTruncatingTail
         return style
+    }
+
+    private func updateAccessibilityValue() {
+        let query = searchQuery.isEmpty ? "No search filter" : "Search \(searchQuery)"
+        setAccessibilityValue("\(items.count) results. \(query)")
     }
 }

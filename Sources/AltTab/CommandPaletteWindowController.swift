@@ -91,7 +91,13 @@ final class CommandPaletteWindowController: NSWindowController, NSTableViewDataS
             guard let frontWindow = loadedItems.first else { return }
             var updatedCommands = self.commands
             for action in WindowAction.allCases {
-                updatedCommands.append(Command(title: "\(action.title): \(frontWindow.title)", detail: frontWindow.subtitle, action: {
+                let actionTitle: String
+                if action == .moveToDisplay, let targetDisplay = WindowActionService.nextDisplayName(for: frontWindow) {
+                    actionTitle = "Move window to \(targetDisplay)"
+                } else {
+                    actionTitle = action.title
+                }
+                updatedCommands.append(Command(title: "\(actionTitle): \(frontWindow.title)", detail: frontWindow.subtitle, action: {
                     WindowActionService.performWithConfirmation(action, on: frontWindow)
                 }))
             }

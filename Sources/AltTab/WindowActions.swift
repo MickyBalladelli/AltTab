@@ -1,7 +1,7 @@
 import AppKit
 import ApplicationServices
 
-enum WindowAction: CaseIterable, Equatable {
+enum WindowAction: String, CaseIterable, Equatable, Hashable {
     case minimize
     case close
     case hideApp
@@ -15,6 +15,71 @@ enum WindowAction: CaseIterable, Equatable {
         case .hideApp: return "Hide app"
         case .moveToDisplay: return "Move window to next display"
         case .moveToSpace: return "Move window to next Space"
+        }
+    }
+}
+
+struct WindowActionShortcut: Codable, Equatable {
+    let keyCode: UInt16
+    let modifierRawValue: UInt
+
+    var modifiers: NSEvent.ModifierFlags {
+        NSEvent.ModifierFlags(rawValue: modifierRawValue)
+    }
+
+    var displayName: String {
+        let modifierNames: [(NSEvent.ModifierFlags, String)] = [(.command, "⌘"), (.option, "⌥"), (.control, "⌃"), (.shift, "⇧")]
+        let modifiers = modifierNames.compactMap { modifier, name in
+            modifierRawValue & modifier.rawValue != 0 ? name : nil
+        }.joined()
+        return modifiers + Self.keyName(for: keyCode)
+    }
+
+    func matches(_ event: NSEvent) -> Bool {
+        let eventModifiers = event.modifierFlags.intersection([.command, .option, .control, .shift]).rawValue
+        return keyCode == event.keyCode && modifierRawValue == eventModifiers
+    }
+
+    static func defaultShortcut(for action: WindowAction) -> WindowActionShortcut {
+        switch action {
+        case .minimize:
+            return WindowActionShortcut(keyCode: 46, modifierRawValue: NSEvent.ModifierFlags.command.rawValue)
+        case .close:
+            return WindowActionShortcut(keyCode: 13, modifierRawValue: NSEvent.ModifierFlags.command.rawValue)
+        case .hideApp:
+            return WindowActionShortcut(keyCode: 4, modifierRawValue: NSEvent.ModifierFlags.command.rawValue)
+        case .moveToDisplay:
+            return WindowActionShortcut(keyCode: 124, modifierRawValue: NSEvent.ModifierFlags([.control, .option]).rawValue)
+        case .moveToSpace:
+            return WindowActionShortcut(keyCode: 124, modifierRawValue: NSEvent.ModifierFlags([.control, .shift]).rawValue)
+        }
+    }
+
+    private static func keyName(for keyCode: UInt16) -> String {
+        switch keyCode {
+        case 4: return "H"
+        case 13: return "W"
+        case 46: return "M"
+        case 48: return "Tab"
+        case 53: return "Escape"
+        case 36, 76: return "Return"
+        case 123: return "←"
+        case 124: return "→"
+        case 125: return "↓"
+        case 126: return "↑"
+        case 122: return "F1"
+        case 120: return "F2"
+        case 99: return "F3"
+        case 118: return "F4"
+        case 96: return "F5"
+        case 97: return "F6"
+        case 98: return "F7"
+        case 100: return "F8"
+        case 101: return "F9"
+        case 109: return "F10"
+        case 103: return "F11"
+        case 111: return "F12"
+        default: return "Key \(keyCode)"
         }
     }
 }
@@ -68,18 +133,18 @@ enum WindowActionService {
         return perform(action, on: item)
     }
 
-    private static func moveToNextDisplay(_ item: SwitcherItem) -> Bool {
-        guard let window = item.window,
-              let element = window.accessibilityElement(),
-              NSScreen.screens.count > 1 else { return false }
+    static func nextDisplayName(for item: SwitcherItem) -> String? {
+        guard let transition = displayTransition(for: item) else { return nil }
+        let target = transition.screens[transition.targetIndex]
+        return target.localizedName.isEmpty ? "Display \(transition.targetIndex + 1)" : target.localizedName
+    }
 
-        let screens = NSScreen.screens
-        let currentIndex = screens.firstIndex { screen in
-            guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return false }
-            return CGDisplayBounds(displayID).intersects(window.frame)
-        } ?? 0
-        let targetIndex = (currentIndex + 1) % screens.count
-        guard let displayID = screens[targetIndex].deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return false }
+    private static func moveToNextDisplay(_ item: SwitcherItem) -> Bool {
+        guard let transition = displayTransition(for: item) else { return false }
+        let window = transition.window
+        let element = transition.element
+        let target = transition.screens[transition.targetIndex]
+        guard let displayID = target.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return false }
 
         var targetBounds = CGDisplayBounds(displayID)
         targetBounds.origin.x += (targetBounds.width - window.frame.width) / 2
@@ -87,6 +152,19 @@ enum WindowActionService {
         var point = targetBounds.origin
         guard let value = AXValueCreate(.cgPoint, &point) else { return false }
         return AXUIElementSetAttributeValue(element, kAXPositionAttribute as CFString, value) == .success
+    }
+
+    private static func displayTransition(for item: SwitcherItem) -> (window: WindowItem, element: AXUIElement, screens: [NSScreen], targetIndex: Int)? {
+        guard let window = item.window,
+              let element = window.accessibilityElement() else { return nil }
+
+        let screens = NSScreen.screens
+        guard screens.count > 1 else { return nil }
+        let currentIndex = screens.firstIndex { screen in
+            guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else { return false }
+            return CGDisplayBounds(displayID).intersects(window.frame)
+        } ?? 0
+        return (window, element, screens, (currentIndex + 1) % screens.count)
     }
 
     private static func moveToNextSpace(_ item: SwitcherItem) -> Bool {

@@ -18,8 +18,33 @@ struct WindowItem {
     let thumbnail: NSImage?
     let isMinimized: Bool
     let frame: CGRect
+    let displayName: String
     let workspaceID: Int?
     let isFullScreen: Bool
+
+    init(
+        windowID: CGWindowID,
+        app: NSRunningApplication,
+        title: String,
+        icon: NSImage,
+        thumbnail: NSImage?,
+        isMinimized: Bool,
+        frame: CGRect,
+        displayName: String = "Display",
+        workspaceID: Int?,
+        isFullScreen: Bool
+    ) {
+        self.windowID = windowID
+        self.app = app
+        self.title = title
+        self.icon = icon
+        self.thumbnail = thumbnail
+        self.isMinimized = isMinimized
+        self.frame = frame
+        self.displayName = displayName
+        self.workspaceID = workspaceID
+        self.isFullScreen = isFullScreen
+    }
 
     var stableIdentifier: String {
         let bundleIdentifier = app.bundleIdentifier ?? "pid:\(app.processIdentifier)"
@@ -83,8 +108,13 @@ final class WindowCatalog {
     }
 
     private struct DisplaySnapshot {
-        let screenBounds: [CGRect]
+        let displays: [DisplayInfo]
         let currentScreenBounds: CGRect?
+    }
+
+    private struct DisplayInfo {
+        let name: String
+        let bounds: CGRect
     }
 
     private struct CatalogSettings {
@@ -276,10 +306,11 @@ final class WindowCatalog {
     }
 
     private static func windowItem(_ window: WindowItem) -> SwitcherItem {
-        SwitcherItem(
+        let appName = window.app.localizedName ?? "Window"
+        return SwitcherItem(
             identifier: window.stableIdentifier,
             title: window.title,
-            subtitle: window.app.localizedName ?? "Window",
+            subtitle: "\(appName) · \(window.displayName)",
             app: window.app,
             window: window,
             icon: window.icon,
@@ -318,7 +349,7 @@ final class WindowCatalog {
             return [SwitcherItem(
                 identifier: "space:current",
                 title: "Current Space",
-                subtitle: "Desktop",
+                subtitle: window.displayName,
                 app: window.app,
                 window: window,
                 icon: NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Space") ?? window.icon,
@@ -330,8 +361,8 @@ final class WindowCatalog {
             guard let window = representatives[workspaceID] else { return nil }
             return SwitcherItem(
                 identifier: "space:\(workspaceID)",
-                title: "Space \(index + 1)",
-                subtitle: "Desktop",
+                title: "Space \(index + 1) · \(window.displayName)",
+                subtitle: "Workspace \(workspaceID)",
                 app: window.app,
                 window: window,
                 icon: NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Space") ?? window.icon,
@@ -366,7 +397,7 @@ final class WindowCatalog {
         var thumbnailCacheMisses = 0
         let startedAt = CFAbsoluteTimeGetCurrent()
 
-        let result: [WindowItem] = list.compactMap { info in
+        let result: [WindowItem] = list.compactMap { (info: [String: Any]) -> WindowItem? in
             guard let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
                   let layer = info[kCGWindowLayer as String] as? Int,
                   let bounds = info[kCGWindowBounds as String] as? [String: CGFloat],
@@ -426,8 +457,8 @@ final class WindowCatalog {
             } else {
                 thumbnailCacheMisses += 1
             }
-            let isFullScreen = displaySnapshot.screenBounds.contains { screenBounds in
-                abs(windowFrame.width - screenBounds.width) < 4 && abs(windowFrame.height - screenBounds.height) < 4
+            let isFullScreen = displaySnapshot.displays.contains { display in
+                abs(windowFrame.width - display.bounds.width) < 4 && abs(windowFrame.height - display.bounds.height) < 4
             }
             return WindowItem(
                 windowID: windowID,
@@ -437,6 +468,7 @@ final class WindowCatalog {
                 thumbnail: cachedThumbnail.image,
                 isMinimized: isMinimized,
                 frame: windowFrame,
+                displayName: displayName(for: windowFrame, in: displaySnapshot.displays),
                 workspaceID: (info[workspaceKey] as? NSNumber)?.intValue,
                 isFullScreen: isFullScreen
             )
@@ -532,8 +564,17 @@ final class WindowCatalog {
 
     private static func displaySnapshot() -> DisplaySnapshot {
         let screens = NSScreen.screens
-        let screenBounds = screens.map(\.frame)
-        return DisplaySnapshot(screenBounds: screenBounds, currentScreenBounds: NSScreen.main?.frame)
+        let displays = screens.enumerated().map { index, screen in
+            DisplayInfo(
+                name: screen.localizedName.isEmpty ? "Display \(index + 1)" : screen.localizedName,
+                bounds: screen.frame
+            )
+        }
+        return DisplaySnapshot(displays: displays, currentScreenBounds: NSScreen.main?.frame)
+    }
+
+    private static func displayName(for windowFrame: CGRect, in displays: [DisplayInfo]) -> String {
+        displays.first { $0.bounds.intersects(windowFrame) }?.name ?? "Other display"
     }
 
     private static func isOnCurrentDisplay(_ windowFrame: CGRect, currentScreenBounds: CGRect?) -> Bool {

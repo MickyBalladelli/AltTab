@@ -39,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Check for Updates...", action: #selector(checkForUpdates), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Accessibility Permission...", action: #selector(showAccessibilitySettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Window Action Shortcuts...", action: #selector(showWindowActionShortcuts), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Workflow Settings...", action: #selector(showWorkflowSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Diagnostics & Permissions...", action: #selector(showDiagnostics), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quit AltTab", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
@@ -89,6 +91,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         if switcher.isVisible {
+            if switcher.performWindowActionShortcut(event) {
+                return true
+            }
             switch event.keyCode {
             case 36, 76:
                 switcher.commit()
@@ -105,6 +110,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     switcher.deleteSearchCharacter()
                     return true
                 }
+            case 126 where event.modifierFlags.contains(.option):
+                switcher.recallRecentSearch(direction: -1)
+                return true
+            case 125 where event.modifierFlags.contains(.option):
+                switcher.recallRecentSearch(direction: 1)
+                return true
             case 48 where SettingsStore.activationShortcut.matches(flags: event.modifierFlags, pressedKeyCodes: pressedModifierKeyCodes):
                 if event.modifierFlags.contains(.shift) {
                     switcher.previous()
@@ -175,6 +186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     @objc private func showSettings() { SettingsWindowController.shared.showWindow(nil) }
+    @objc private func showWindowActionShortcuts() { WindowActionShortcutsWindowController.shared.showWindow(nil) }
+    @objc private func showWorkflowSettings() { WorkflowSettingsWindowController.shared.showWindow(nil) }
     @objc private func checkForUpdates() { UpdateController.shared.checkForUpdates() }
     @objc private func showCommandPalette() {
         commandPalette.show(
@@ -388,6 +401,7 @@ final class SwitcherController {
     private var loadGeneration = 0
     private var loading = false
     private var holdToPreviewSession = false
+    private var recentSearchIndex: Int?
     var isVisible: Bool { state.isVisible }
     var isLoading: Bool { loading }
     var isActive: Bool { isVisible || isLoading }
@@ -399,11 +413,13 @@ final class SwitcherController {
 
     func begin() {
         SettingsStore.registerDefaults()
+        let mode = SettingsStore.modeForNextSwitcher
         loadGeneration += 1
         let generation = loadGeneration
         loading = true
         holdToPreviewSession = true
-        WindowCatalog.loadItems(for: SettingsStore.contentMode) { [weak self] loadedItems in
+        recentSearchIndex = nil
+        WindowCatalog.loadItems(for: mode) { [weak self] loadedItems in
             guard let self, self.loadGeneration == generation else { return }
             self.loading = false
             let orderedItems = MRUStore.order(loadedItems)
@@ -412,6 +428,7 @@ final class SwitcherController {
                 self.syncView()
                 return
             }
+            SettingsStore.lastMode = mode
             if self.panel == nil { self.createPanel() }
             self.updatePanelAppearance()
             self.updatePanelLayout()
@@ -440,18 +457,21 @@ final class SwitcherController {
     }
 
     func appendSearchText(_ text: String) {
+        recentSearchIndex = nil
         guard state.appendSearchText(text) else { return }
         syncView()
         announceSelection()
     }
 
     func deleteSearchCharacter() {
+        recentSearchIndex = nil
         guard state.deleteSearchCharacter() else { return }
         syncView()
         announceSelection()
     }
 
     func clearSearch() {
+        recentSearchIndex = nil
         guard state.clearSearch() else { return }
         syncView()
         announceSelection()
@@ -478,6 +498,28 @@ final class SwitcherController {
         }
     }
 
+    func recallRecentSearch(direction: Int) {
+        let terms = SearchHistoryStore.terms
+        guard !terms.isEmpty else { return }
+        let nextIndex: Int
+        if let recentSearchIndex {
+            nextIndex = (recentSearchIndex + direction + terms.count) % terms.count
+        } else {
+            nextIndex = direction < 0 ? 0 : terms.count - 1
+        }
+        recentSearchIndex = nextIndex
+        guard state.setSearchQuery(terms[nextIndex]) else { return }
+        syncView()
+        announceSelection()
+    }
+
+    func performWindowActionShortcut(_ event: NSEvent) -> Bool {
+        guard let action = WindowAction.allCases.first(where: { SettingsStore.windowActionShortcut(for: $0).matches(event) }) else { return false }
+        guard let item = state.selectedItem else { return true }
+        performWindowAction(action, on: item)
+        return true
+    }
+
     static func numberIndex(for keyCode: UInt16) -> Int? {
         let keyCodes: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25]
         guard let index = keyCodes.firstIndex(of: keyCode) else { return nil }
@@ -490,6 +532,7 @@ final class SwitcherController {
             return
         }
         guard let item = state.selectedItem else { cancel(); return }
+        let query = state.searchQuery
         guard item.activate() else {
             state.removeSelected()
             syncView()
@@ -500,6 +543,7 @@ final class SwitcherController {
             return
         }
         MRUStore.record(item)
+        SearchHistoryStore.record(query)
         state.cancel()
         syncView()
         panel?.orderOut(nil)
@@ -529,6 +573,9 @@ final class SwitcherController {
         }
         view.onItemCommitted = { [weak self] in
             self?.commit()
+        }
+        view.onContextMenu = { [weak self] index in
+            self?.contextMenu(for: index)
         }
         panel.acceptsMouseMovedEvents = true
         panel.ignoresMouseEvents = false
@@ -582,6 +629,47 @@ final class SwitcherController {
         view?.items = items
         view?.searchQuery = searchQuery
         view?.selectedIndex = selectedIndex
+        view?.recentSearchTerms = SearchHistoryStore.terms
+    }
+
+    private func contextMenu(for index: Int) -> NSMenu? {
+        guard state.select(index: index), let item = state.selectedItem else { return nil }
+        syncView()
+
+        let menu = NSMenu()
+        for action in WindowAction.allCases where item.window != nil || action == .hideApp {
+            let title: String
+            if action == .moveToDisplay, let targetDisplay = WindowActionService.nextDisplayName(for: item) {
+                title = "Move window to \(targetDisplay)"
+            } else {
+                title = action.title
+            }
+            let menuItem = NSMenuItem(title: title, action: #selector(performContextAction(_:)), keyEquivalent: "")
+            menuItem.target = self
+            menuItem.representedObject = action.rawValue
+            let shortcut = SettingsStore.windowActionShortcut(for: action).displayName
+            menuItem.toolTip = "Shortcut: \(shortcut)"
+            menu.addItem(menuItem)
+        }
+        return menu.items.isEmpty ? nil : menu
+    }
+
+    @objc private func performContextAction(_ sender: NSMenuItem) {
+        guard let rawValue = sender.representedObject as? String,
+              let action = WindowAction(rawValue: rawValue),
+              let item = state.selectedItem else { return }
+        performWindowAction(action, on: item)
+    }
+
+    private func performWindowAction(_ action: WindowAction, on item: SwitcherItem) {
+        guard WindowActionService.performWithConfirmation(action, on: item) else { return }
+        if [.close, .minimize, .hideApp].contains(action) {
+            state.removeSelected()
+            syncView()
+            if !state.isVisible {
+                panel?.orderOut(nil)
+            }
+        }
     }
 
     private func reportActivationFailure() {

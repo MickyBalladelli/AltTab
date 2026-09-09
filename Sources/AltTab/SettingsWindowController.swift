@@ -265,6 +265,7 @@ final class SettingsView: NSView {
         guard let rawValue = sender.selectedItem?.representedObject as? String,
               let mode = SwitcherContentMode(rawValue: rawValue) else { return }
         SettingsStore.contentMode = mode
+        SettingsStore.lastMode = mode
     }
 
     @objc private func changeColumns(_ sender: NSPopUpButton) {

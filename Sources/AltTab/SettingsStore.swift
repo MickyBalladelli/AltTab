@@ -16,6 +16,9 @@ enum SettingsStore {
     static let onlyCurrentDisplayKey = "AltTab.customization.onlyCurrentDisplay"
     static let activationShortcutKey = "AltTab.customization.activationShortcut"
     static let holdToPreviewKey = "AltTab.customization.holdToPreview"
+    static let rememberLastModeKey = "AltTab.workflow.rememberLastMode"
+    static let lastModeKey = "AltTab.workflow.lastMode"
+    private static let windowActionShortcutPrefix = "AltTab.workflow.windowActionShortcut."
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -33,7 +36,8 @@ enum SettingsStore {
             backgroundBlurKey: true,
             onlyCurrentDisplayKey: false,
             activationShortcutKey: ActivationShortcut.option.rawValue,
-            holdToPreviewKey: true
+            holdToPreviewKey: true,
+            rememberLastModeKey: true
         ])
     }
 
@@ -123,5 +127,57 @@ enum SettingsStore {
     static var holdToPreview: Bool {
         get { UserDefaults.standard.bool(forKey: holdToPreviewKey) }
         set { UserDefaults.standard.set(newValue, forKey: holdToPreviewKey) }
+    }
+
+    static var rememberLastMode: Bool {
+        get { UserDefaults.standard.bool(forKey: rememberLastModeKey) }
+        set { UserDefaults.standard.set(newValue, forKey: rememberLastModeKey) }
+    }
+
+    static var lastMode: SwitcherContentMode? {
+        get {
+            guard let rawValue = UserDefaults.standard.string(forKey: lastModeKey) else { return nil }
+            return SwitcherContentMode(rawValue: rawValue)
+        }
+        set { UserDefaults.standard.set(newValue?.rawValue, forKey: lastModeKey) }
+    }
+
+    static var modeForNextSwitcher: SwitcherContentMode {
+        rememberLastMode ? (lastMode ?? contentMode) : contentMode
+    }
+
+    static func windowActionShortcut(for action: WindowAction) -> WindowActionShortcut {
+        let key = windowActionShortcutPrefix + action.rawValue
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let shortcut = try? JSONDecoder().decode(WindowActionShortcut.self, from: data) else {
+            return .defaultShortcut(for: action)
+        }
+        return shortcut
+    }
+
+    @discardableResult
+    static func setWindowActionShortcut(_ shortcut: WindowActionShortcut, for action: WindowAction) -> Bool {
+        guard windowActionShortcutConflict(shortcut, for: action) == nil,
+              let data = try? JSONEncoder().encode(shortcut) else { return false }
+        UserDefaults.standard.set(data, forKey: windowActionShortcutPrefix + action.rawValue)
+        return true
+    }
+
+    static func resetWindowActionShortcut(for action: WindowAction) {
+        UserDefaults.standard.removeObject(forKey: windowActionShortcutPrefix + action.rawValue)
+    }
+
+    static func windowActionShortcutConflict(_ shortcut: WindowActionShortcut, for action: WindowAction) -> String? {
+        if shortcut.keyCode == 48,
+           shortcut.modifiers.contains(SettingsStore.activationShortcut.modifierFlag) {
+            return "This shortcut conflicts with AltTab's activation shortcut."
+        }
+
+        for otherAction in WindowAction.allCases where otherAction != action {
+            if windowActionShortcut(for: otherAction) == shortcut {
+                return "This shortcut is already assigned to \(otherAction.title)."
+            }
+        }
+        return nil
     }
 }

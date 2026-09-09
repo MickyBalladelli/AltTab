@@ -8,6 +8,7 @@ struct SwitcherState {
     private(set) var isVisible = false
 
     var hasSearchQuery: Bool { !searchQuery.isEmpty }
+    var resultCount: Int { items.count }
     var selectedItem: SwitcherItem? {
         guard items.indices.contains(selectedIndex) else { return nil }
         return items[selectedIndex]
@@ -61,6 +62,14 @@ struct SwitcherState {
     }
 
     @discardableResult
+    mutating func setSearchQuery(_ query: String) -> Bool {
+        guard isVisible else { return false }
+        searchQuery = query
+        applySearch()
+        return true
+    }
+
+    @discardableResult
     mutating func deleteSearchCharacter() -> Bool {
         guard isVisible, !searchQuery.isEmpty else { return false }
         searchQuery.removeLast()
@@ -108,14 +117,56 @@ struct SwitcherState {
         if searchQuery.isEmpty {
             items = sourceItems
         } else {
-            items = sourceItems.filter { item in
-                item.title.localizedCaseInsensitiveContains(searchQuery) ||
-                item.subtitle.localizedCaseInsensitiveContains(searchQuery) ||
-                (item.app?.localizedName?.localizedCaseInsensitiveContains(searchQuery) ?? false)
+            let queryParts = searchQuery
+                .split { $0.isWhitespace }
+                .map { String($0).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+            let scoredItems = sourceItems.enumerated().compactMap { index, item -> (index: Int, item: SwitcherItem, score: Int)? in
+                let fields = [item.title, item.subtitle, item.app?.localizedName ?? ""]
+                    .map { $0.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+                var totalScore = 0
+                for queryPart in queryParts {
+                    guard let bestScore = fields.compactMap({ fuzzyScore(queryPart, in: $0) }).max() else { return nil }
+                    totalScore += bestScore
+                }
+                return (index, item, totalScore)
             }
+            items = scoredItems
+                .sorted { lhs, rhs in
+                    if lhs.score == rhs.score { return lhs.index < rhs.index }
+                    return lhs.score > rhs.score
+                }
+                .map(\.item)
         }
         selectedIndex = previousIdentifier.flatMap { identifier in
             items.firstIndex { $0.identifier == identifier }
         } ?? 0
+    }
+
+    private func fuzzyScore(_ query: String, in text: String) -> Int? {
+        guard !query.isEmpty, !text.isEmpty else { return nil }
+        if let exactRange = text.range(of: query) {
+            let prefixBonus = exactRange.lowerBound == text.startIndex ? 160 : 80
+            return 600 + prefixBonus - text.distance(from: text.startIndex, to: exactRange.lowerBound)
+        }
+
+        let queryCharacters = Array(query)
+        let textCharacters = Array(text)
+        var textIndex = 0
+        var previousMatch = -1
+        var gaps = 0
+        var consecutiveMatches = 0
+
+        for queryCharacter in queryCharacters {
+            guard let matchIndex = textCharacters[textIndex...].firstIndex(of: queryCharacter) else { return nil }
+            if previousMatch + 1 == matchIndex {
+                consecutiveMatches += 1
+            } else if previousMatch >= 0 {
+                gaps += matchIndex - previousMatch - 1
+            }
+            previousMatch = matchIndex
+            textIndex = matchIndex + 1
+        }
+
+        return 260 + consecutiveMatches * 24 - gaps * 3 - max(0, textCharacters.count - queryCharacters.count)
     }
 }

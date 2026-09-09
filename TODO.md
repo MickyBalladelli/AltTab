@@ -55,11 +55,11 @@
 - [x] (P2) Add a repeatable performance benchmark for cold and warm switcher opens.
 
 ### Keyboard and window workflow
-- [ ] (P1) Add fuzzy search, recent search terms, and a visible result count.
-- [ ] (P1) Add a contextual menu for actions on the currently selected window.
-- [ ] (P1) Show clearer Space and display names, including the target display before a move.
-- [ ] (P2) Add configurable shortcuts for every window action.
-- [ ] (P2) Add launch-at-login and an option to reopen the last switcher mode.
+- [x] (P1) Add fuzzy search, recent search terms, and a visible result count.
+- [x] (P1) Add a contextual menu for actions on the currently selected window.
+- [x] (P1) Show clearer Space and display names, including the target display before a move.
+- [x] (P2) Add configurable shortcuts for every window action.
+- [x] (P2) Add launch-at-login and an option to reopen the last switcher mode.
 
 ### Accessibility and settings
 - [ ] (P0) Expose every switcher card as a VoiceOver element with title, app, selected state, and keyboard hint.
