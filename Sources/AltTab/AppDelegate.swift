@@ -102,7 +102,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func showSwitcher() { switcher.begin() }
-    @objc private func showAccessibilitySettings() { accessibilityOnboarding.showAlertIfNeeded() }
+    @objc private func showAccessibilitySettings() {
+        if AccessibilityController.isTrusted {
+            AccessibilityController.openSystemSettings()
+        } else {
+            accessibilityOnboarding.showAlertIfNeeded()
+        }
+    }
     @objc private func showSettings() { SettingsWindowController.shared.showWindow(nil) }
 }
 

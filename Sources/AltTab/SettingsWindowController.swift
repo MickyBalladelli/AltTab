@@ -98,14 +98,14 @@ final class SettingsView: NSView {
         addSubview(permissionLabel)
 
         permissionStatusLabel.alignment = .right
-        permissionStatusLabel.frame = NSRect(x: bounds.width - 250, y: bounds.height - 362, width: 130, height: 20)
+        permissionStatusLabel.frame = NSRect(x: 170, y: bounds.height - 362, width: 150, height: 20)
         permissionStatusLabel.autoresizingMask = [.minXMargin, .minYMargin]
         addSubview(permissionStatusLabel)
         refreshPermissionStatus()
 
         let permissionButton = NSButton(title: "Open System Settings", target: self, action: #selector(openAccessibilitySettings))
         permissionButton.bezelStyle = .rounded
-        permissionButton.frame = NSRect(x: bounds.width - 210, y: bounds.height - 398, width: 176, height: 26)
+        permissionButton.frame = NSRect(x: bounds.width - 210, y: bounds.height - 365, width: 176, height: 26)
         permissionButton.autoresizingMask = [.minXMargin, .minYMargin]
         addSubview(permissionButton)
 
