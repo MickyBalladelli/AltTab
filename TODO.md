@@ -17,14 +17,14 @@
 - [x] Add optional "hold key to preview, release to switch" behavior.
 
 ## Must-have Mac features
-- [ ] Restore the last-used window order and make MRU ordering predictable.
-- [ ] Search windows by app or title without leaving the keyboard.
-- [ ] Switch directly to a specific window with `Option-1` through `Option-9`.
-- [ ] Support Spaces and displays without unexpectedly moving the user between desktops.
-- [ ] Add window actions: minimize, close, hide app, move to display, and move to Space.
-- [ ] Add a compact command palette for quick actions and app launching.
-- [ ] Respect Reduce Motion, Increase Contrast, and VoiceOver accessibility settings.
-- [ ] Add telemetry-free diagnostics and a permissions/status page.
+- [x] Restore the last-used window order and make MRU ordering predictable.
+- [x] Search windows by app or title without leaving the keyboard.
+- [x] Switch directly to a specific window with `Option-1` through `Option-9`.
+- [x] Support Spaces and displays without unexpectedly moving the user between desktops.
+- [x] Add window actions: minimize, close, hide app, move to display, and move to Space.
+- [x] Add a compact command palette for quick actions and app launching.
+- [x] Respect Reduce Motion, Increase Contrast, and VoiceOver accessibility settings.
+- [x] Add telemetry-free diagnostics and a permissions/status page.
 
 ## Distribution
 - [ ] Create a GitHub release workflow for signed and notarized DMGs.

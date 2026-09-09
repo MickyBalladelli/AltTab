@@ -3,6 +3,7 @@ import AppKit
 final class SwitcherView: NSView {
     var items: [SwitcherItem] = [] { didSet { needsDisplay = true } }
     var selectedIndex = 0 { didSet { needsDisplay = true } }
+    var searchQuery = "" { didSet { needsDisplay = true } }
     var onItemSelected: ((Int) -> Void)?
     var onItemCommitted: (() -> Void)?
 
@@ -16,14 +17,45 @@ final class SwitcherView: NSView {
         let cardWidth = max(minimumCardWidth, thumbnailSize + 42)
         let cardHeight = SettingsStore.showLabels ? max(130, thumbnailSize + 82) : max(108, thumbnailSize + 38)
         let width = CGFloat(visibleCount) * cardWidth + CGFloat(max(0, visibleCount - 1)) * cardGap + 36
-        return NSSize(width: max(width, 320), height: cardHeight + 48)
+        return NSSize(width: max(width, 320), height: cardHeight + 68)
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setAccessibilityRole(.list)
+        setAccessibilityLabel("AltTab window switcher")
+        setAccessibilityValue("No search filter")
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        setAccessibilityRole(.list)
+        setAccessibilityLabel("AltTab window switcher")
     }
 
     override func draw(_ dirtyRect: NSRect) {
         let radius = CGFloat(SettingsStore.cornerRadius)
         let opacity = CGFloat(SettingsStore.opacity)
-        NSColor(calibratedWhite: 0.08, alpha: opacity).setFill()
-        NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+        let backgroundColor: NSColor
+        if SystemAccessibility.increaseContrast || SystemAccessibility.reduceTransparency {
+            backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.98)
+        } else {
+            backgroundColor = NSColor(calibratedWhite: 0.08, alpha: opacity)
+        }
+        let backgroundPath = NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius)
+        backgroundColor.setFill()
+        backgroundPath.fill()
+        if SystemAccessibility.increaseContrast {
+            NSColor.labelColor.withAlphaComponent(0.7).setStroke()
+            backgroundPath.lineWidth = 1
+            backgroundPath.stroke()
+        }
+
+        let searchText = searchQuery.isEmpty ? "Type to search windows" : "Search: \(searchQuery)"
+        (searchText as NSString).draw(at: NSPoint(x: 18, y: bounds.height - 25), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            .foregroundColor: searchQuery.isEmpty ? NSColor.secondaryLabelColor : NSColor.labelColor
+        ])
 
         let range = visibleRange()
         let cardWidth = Self.cardWidth
@@ -33,11 +65,17 @@ final class SwitcherView: NSView {
 
         for index in range {
             let item = items[index]
-            let rect = NSRect(x: x, y: 29, width: cardWidth, height: cardHeight)
+            let rect = NSRect(x: x, y: 34, width: cardWidth, height: cardHeight)
             let cardRadius = max(6, radius - 4)
             if index == selectedIndex {
+                let selectionPath = NSBezierPath(roundedRect: rect.insetBy(dx: -3, dy: -3), xRadius: cardRadius + 3, yRadius: cardRadius + 3)
                 (NSColor(hex: SettingsStore.accentColorHex) ?? .controlAccentColor).setFill()
-                NSBezierPath(roundedRect: rect.insetBy(dx: -3, dy: -3), xRadius: cardRadius + 3, yRadius: cardRadius + 3).fill()
+                selectionPath.fill()
+                if SystemAccessibility.increaseContrast {
+                    NSColor.white.setStroke()
+                    selectionPath.lineWidth = 2
+                    selectionPath.stroke()
+                }
             }
 
             NSColor(calibratedWhite: 0.16, alpha: 1).setFill()
@@ -62,6 +100,13 @@ final class SwitcherView: NSView {
                 subtitleLabel.draw(in: NSRect(x: rect.minX + 7, y: rect.minY + 13, width: rect.width - 14, height: 15), withAttributes: subtitleAttributes)
             }
             x += cardWidth + Self.cardGap
+        }
+
+        if items.isEmpty {
+            ("No matching windows" as NSString).draw(
+                at: NSPoint(x: 18, y: bounds.midY - 8),
+                withAttributes: [.font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.secondaryLabelColor]
+            )
         }
 
         let hint = "Option-Tab cycle    Shift reverse    Arrows / 1-9 select    Return switch    Esc cancel"
@@ -125,7 +170,7 @@ final class SwitcherView: NSView {
         let totalWidth = CGFloat(range.count) * Self.cardWidth + CGFloat(max(0, range.count - 1)) * Self.cardGap
         let startX = (bounds.width - totalWidth) / 2
         let cardHeight = Self.cardHeight
-        guard point.y >= 29, point.y <= 29 + cardHeight else { return nil }
+        guard point.y >= 34, point.y <= 34 + cardHeight else { return nil }
 
         let position = Int((point.x - startX) / (Self.cardWidth + Self.cardGap))
         guard range.contains(range.lowerBound + position) else { return nil }

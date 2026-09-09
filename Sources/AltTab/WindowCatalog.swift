@@ -12,15 +12,13 @@ struct WindowItem {
     let workspaceID: Int?
     let isFullScreen: Bool
 
-    func activate() {
-        app.activate(options: [.activateIgnoringOtherApps])
-
+    func accessibilityElement() -> AXUIElement? {
         let application = AXUIElementCreateApplication(app.processIdentifier)
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(application, kAXWindowsAttribute as CFString, &value) == .success,
-              let windows = value as? [AXUIElement] else { return }
+              let windows = value as? [AXUIElement] else { return nil }
 
-        let matchingWindow = windows.first { window in
+        return windows.first { window in
             WindowCatalog.windowID(for: window) == windowID
         } ?? windows.first { window in
             guard let candidateFrame = WindowCatalog.frame(for: window) else { return false }
@@ -28,8 +26,11 @@ struct WindowItem {
         } ?? windows.first { window in
             WindowCatalog.title(for: window) == title
         }
+    }
 
-        guard let window = matchingWindow else { return }
+    func activate() {
+        app.activate(options: [.activateIgnoringOtherApps])
+        guard let window = accessibilityElement() else { return }
         if isMinimized {
             AXUIElementSetAttributeValue(window, kAXMinimizedAttribute as CFString, kCFBooleanFalse)
         }

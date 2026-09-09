@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var globalMonitor: Any?
     private var localMonitor: Any?
     private var pressedModifierKeyCodes = Set<UInt16>()
+    private let commandPalette = CommandPaletteWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         SettingsStore.registerDefaults()
@@ -26,8 +27,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menu = NSMenu()
         menu.addItem(NSMenuItem(title: "Show Switcher", action: #selector(showSwitcher), keyEquivalent: ""))
         menu.addItem(.separator())
+        let paletteItem = NSMenuItem(title: "Command Palette...", action: #selector(showCommandPalette), keyEquivalent: "p")
+        paletteItem.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(paletteItem)
         menu.addItem(NSMenuItem(title: "Accessibility Permission...", action: #selector(showAccessibilitySettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(showSettings), keyEquivalent: ","))
+        menu.addItem(NSMenuItem(title: "Diagnostics & Permissions...", action: #selector(showDiagnostics), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quit AltTab", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
@@ -58,14 +63,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         guard event.type == .keyDown else { return false }
 
+        if let index = SwitcherController.numberIndex(for: event.keyCode),
+           event.modifierFlags.contains(.option) {
+            switcher.activateWindow(at: index)
+            return true
+        }
+
         if switcher.isVisible {
             switch event.keyCode {
             case 36, 76:
                 switcher.commit()
                 return true
             case 53:
+                if switcher.hasSearchQuery {
+                    switcher.clearSearch()
+                    return true
+                }
                 switcher.cancel()
                 return true
+            case 51, 117:
+                if switcher.hasSearchQuery {
+                    switcher.deleteSearchCharacter()
+                    return true
+                }
             case 48 where SettingsStore.activationShortcut.matches(flags: event.modifierFlags, pressedKeyCodes: pressedModifierKeyCodes):
                 if event.modifierFlags.contains(.shift) {
                     switcher.previous()
@@ -81,10 +101,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return true
             default:
                 if let index = SwitcherController.numberIndex(for: event.keyCode),
+                   !switcher.hasSearchQuery,
                    event.modifierFlags.intersection([.command, .control]).isEmpty {
                     switcher.select(index: index)
                     return true
                 }
+            }
+
+            if event.modifierFlags.intersection([.command, .control]).isEmpty,
+               let characters = event.charactersIgnoringModifiers,
+               !characters.isEmpty {
+                switcher.appendSearchText(characters)
+                return true
             }
         }
 
@@ -128,6 +156,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
     @objc private func showSettings() { SettingsWindowController.shared.showWindow(nil) }
+    @objc private func showCommandPalette() {
+        commandPalette.show(
+            showSwitcher: { [weak self] in self?.switcher.begin() },
+            showSettings: { SettingsWindowController.shared.showWindow(nil) }
+        )
+    }
+    @objc private func showDiagnostics() { DiagnosticsWindowController.shared.showWindow(nil) }
 }
 
 enum ShortcutStore {
@@ -245,41 +280,79 @@ enum ShortcutStore {
 final class SwitcherController {
     private(set) var isVisible = false
     private var items: [SwitcherItem] = []
+    private var sourceItems: [SwitcherItem] = []
+    private(set) var searchQuery = ""
     private var selectedIndex = 0
     private var panel: NSPanel?
     private var view: SwitcherView?
     private var blurView: NSVisualEffectView?
+    var hasSearchQuery: Bool { !searchQuery.isEmpty }
 
     func begin() {
         SettingsStore.registerDefaults()
-        items = WindowCatalog.items(for: SettingsStore.contentMode)
-        guard !items.isEmpty else { return }
+        sourceItems = MRUStore.order(WindowCatalog.items(for: SettingsStore.contentMode))
+        guard !sourceItems.isEmpty else { return }
+        searchQuery = ""
+        items = sourceItems
         selectedIndex = 0
         isVisible = true
         if panel == nil { createPanel() }
         updatePanelAppearance()
         updatePanelLayout()
         view?.items = items
+        view?.searchQuery = searchQuery
         view?.selectedIndex = selectedIndex
         panel?.orderFrontRegardless()
+        announceSelection()
     }
 
     func advance() {
         guard isVisible, !items.isEmpty else { return }
         selectedIndex = (selectedIndex + 1) % items.count
         view?.selectedIndex = selectedIndex
+        announceSelection()
     }
 
     func previous() {
         guard isVisible, !items.isEmpty else { return }
         selectedIndex = (selectedIndex - 1 + items.count) % items.count
         view?.selectedIndex = selectedIndex
+        announceSelection()
     }
 
     func select(index: Int) {
         guard isVisible, items.indices.contains(index) else { return }
         selectedIndex = index
         view?.selectedIndex = selectedIndex
+        announceSelection()
+    }
+
+    func appendSearchText(_ text: String) {
+        guard isVisible else { return }
+        let additions = text.filter { !$0.isNewline && $0 != "\u{7f}" }
+        guard !additions.isEmpty else { return }
+        searchQuery.append(contentsOf: additions)
+        applySearch()
+    }
+
+    func deleteSearchCharacter() {
+        guard isVisible, !searchQuery.isEmpty else { return }
+        searchQuery.removeLast()
+        applySearch()
+    }
+
+    func clearSearch() {
+        guard isVisible, !searchQuery.isEmpty else { return }
+        searchQuery = ""
+        applySearch()
+    }
+
+    func activateWindow(at index: Int) {
+        let windows = MRUStore.order(WindowCatalog.items(for: .windows))
+        guard windows.indices.contains(index) else { return }
+        MRUStore.record(windows[index])
+        windows[index].activate()
+        cancel()
     }
 
     static func numberIndex(for keyCode: UInt16) -> Int? {
@@ -290,6 +363,7 @@ final class SwitcherController {
 
     func commit() {
         guard isVisible, items.indices.contains(selectedIndex) else { cancel(); return }
+        MRUStore.record(items[selectedIndex])
         items[selectedIndex].activate()
         cancel()
     }
@@ -297,6 +371,8 @@ final class SwitcherController {
     func cancel() {
         isVisible = false
         panel?.orderOut(nil)
+        searchQuery = ""
+        view?.searchQuery = searchQuery
     }
 
     private func createPanel() {
@@ -306,7 +382,8 @@ final class SwitcherController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        panel.animationBehavior = SystemAccessibility.reduceMotion ? .none : .utilityWindow
         let view = SwitcherView(frame: NSRect(origin: .zero, size: size))
         view.onItemSelected = { [weak self] index in
             self?.select(index: index)
@@ -329,14 +406,15 @@ final class SwitcherController {
         if let contentView = panel.contentView {
             contentView.frame = NSRect(origin: .zero, size: size)
         }
-        if let screen = NSScreen.main {
+        let mouseScreen = NSScreen.screens.first { $0.frame.contains(NSEvent.mouseLocation) }
+        if let screen = mouseScreen ?? NSScreen.main {
             panel.setFrameOrigin(NSPoint(x: screen.frame.midX - size.width / 2, y: screen.frame.midY - size.height / 2))
         }
     }
 
     private func updatePanelAppearance() {
         guard let panel, let view else { return }
-        if SettingsStore.backgroundBlur {
+        if SettingsStore.backgroundBlur && !SystemAccessibility.reduceTransparency {
             let effect = blurView ?? NSVisualEffectView(frame: panel.contentView?.bounds ?? view.bounds)
             effect.material = .hudWindow
             effect.blendingMode = .behindWindow
@@ -358,5 +436,39 @@ final class SwitcherController {
             view.frame = panel.contentView?.bounds ?? view.bounds
             view.autoresizingMask = [.width, .height]
         }
+        panel.animationBehavior = SystemAccessibility.reduceMotion ? .none : .utilityWindow
+    }
+
+    private func applySearch() {
+        let previousIdentifier = items.indices.contains(selectedIndex) ? items[selectedIndex].identifier : nil
+        if searchQuery.isEmpty {
+            items = sourceItems
+        } else {
+            items = sourceItems.filter { item in
+                item.title.localizedCaseInsensitiveContains(searchQuery) ||
+                item.subtitle.localizedCaseInsensitiveContains(searchQuery) ||
+                (item.app?.localizedName?.localizedCaseInsensitiveContains(searchQuery) ?? false)
+            }
+        }
+        selectedIndex = previousIdentifier.flatMap { identifier in
+            items.firstIndex { $0.identifier == identifier }
+        } ?? 0
+        view?.items = items
+        view?.searchQuery = searchQuery
+        view?.selectedIndex = selectedIndex
+        announceSelection()
+    }
+
+    private func announceSelection() {
+        guard SystemAccessibility.voiceOverEnabled,
+              let view,
+              items.indices.contains(selectedIndex) else { return }
+        let item = items[selectedIndex]
+        let announcement = item.title + ", " + item.subtitle
+        NSAccessibility.post(
+            element: view,
+            notification: .announcementRequested,
+            userInfo: [.announcement: announcement]
+        )
     }
 }
