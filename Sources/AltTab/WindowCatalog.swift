@@ -439,8 +439,13 @@ final class WindowCatalog {
             )
             guard WindowFilter.includes(candidate, options: filterOptions) else { return nil }
 
-            let title = info[kCGWindowName as String] as? String ?? app.localizedName ?? "Window"
-            let resolvedTitle = title.isEmpty ? (app.localizedName ?? "Window") : title
+            let windowTitle = (info[kCGWindowName as String] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let accessibilityTitle = accessibilityWindow?.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            let resolvedTitle = [windowTitle, accessibilityTitle]
+                .compactMap { $0 }
+                .first { !$0.isEmpty }
+                ?? app.localizedName
+                ?? "Window"
             let cachedIcon = icon(for: app)
             if cachedIcon.wasCached {
                 iconCacheHits += 1
