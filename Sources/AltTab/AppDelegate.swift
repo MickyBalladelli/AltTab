@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         SettingsStore.registerDefaults()
+        CrashDiagnostics.install()
         switcher.onAccessibilityLost = { [weak self] in
             self?.recoverAccessibility()
         }
@@ -46,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(NSMenuItem(title: "Export Settings...", action: #selector(exportSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Import Settings...", action: #selector(importSettings), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Diagnostics & Permissions...", action: #selector(showDiagnostics), keyEquivalent: ""))
+        menu.addItem(NSMenuItem(title: "Open Crash Diagnostics...", action: #selector(openCrashDiagnostics), keyEquivalent: ""))
         menu.addItem(NSMenuItem(title: "Quit AltTab", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         statusItem.menu = menu
     }
@@ -224,6 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
     }
     @objc private func showDiagnostics() { DiagnosticsWindowController.shared.showWindow(nil) }
+    @objc private func openCrashDiagnostics() { CrashDiagnostics.openFolder() }
 
     private func beginSwitcher() {
         guard AccessibilityController.isTrusted else {

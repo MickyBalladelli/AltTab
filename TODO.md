@@ -68,7 +68,7 @@
 - [x] (P2) Add per-app profiles for content mode, filters, and appearance.
 
 ### Release and maintenance
-- [ ] (P1) Add an opt-in automatic update download after signature and notarization verification.
-- [ ] (P1) Add release smoke checks for the DMG, cask URL, checksum, and install/uninstall path.
-- [ ] (P2) Add a reproducible release checklist and certificate-rotation instructions.
-- [ ] (P2) Add local crash diagnostics without collecting or transmitting telemetry.
+- [x] (P1) Add an opt-in automatic update download after signature and notarization verification.
+- [x] (P1) Add release smoke checks for the DMG, cask URL, checksum, and install/uninstall path.
+- [x] (P2) Add a reproducible release checklist and certificate-rotation instructions.
+- [x] (P2) Add local crash diagnostics without collecting or transmitting telemetry.

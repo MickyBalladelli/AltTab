@@ -19,7 +19,7 @@ final class WorkflowSettingsWindowController: NSWindowController {
     static let shared = WorkflowSettingsWindowController()
 
     convenience init() {
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 230), styleMask: [.titled, .closable], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 540, height: 270), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "Workflow Settings"
         window.center()
         self.init(window: window)
@@ -36,6 +36,7 @@ final class WorkflowSettingsWindowController: NSWindowController {
 final class WorkflowSettingsView: NSView {
     private let launchAtLoginCheckbox = NSButton(checkboxWithTitle: "Launch AltTab at login", target: nil, action: nil)
     private let rememberLastModeCheckbox = NSButton(checkboxWithTitle: "Remember last switcher mode", target: nil, action: nil)
+    private let automaticUpdateCheckbox = NSButton(checkboxWithTitle: "Automatically download verified updates", target: nil, action: nil)
     private let modeLabel = NSTextField(labelWithString: "Current mode: ")
 
     override init(frame frameRect: NSRect) {
@@ -66,20 +67,27 @@ final class WorkflowSettingsView: NSView {
         launchAtLoginCheckbox.state = LaunchAtLoginStore.isEnabled ? .on : .off
         launchAtLoginCheckbox.target = self
         launchAtLoginCheckbox.action = #selector(toggleLaunchAtLogin)
-        launchAtLoginCheckbox.frame = NSRect(x: 28, y: 112, width: bounds.width - 56, height: 24)
+        launchAtLoginCheckbox.frame = NSRect(x: 28, y: 154, width: bounds.width - 56, height: 24)
         launchAtLoginCheckbox.autoresizingMask = [.width, .minYMargin]
         addSubview(launchAtLoginCheckbox)
 
         rememberLastModeCheckbox.state = SettingsStore.rememberLastMode ? .on : .off
         rememberLastModeCheckbox.target = self
         rememberLastModeCheckbox.action = #selector(toggleRememberLastMode)
-        rememberLastModeCheckbox.frame = NSRect(x: 28, y: 76, width: bounds.width - 56, height: 24)
+        rememberLastModeCheckbox.frame = NSRect(x: 28, y: 118, width: bounds.width - 56, height: 24)
         rememberLastModeCheckbox.autoresizingMask = [.width, .minYMargin]
         addSubview(rememberLastModeCheckbox)
 
+        automaticUpdateCheckbox.state = SettingsStore.automaticUpdateDownloads ? .on : .off
+        automaticUpdateCheckbox.target = self
+        automaticUpdateCheckbox.action = #selector(toggleAutomaticUpdates)
+        automaticUpdateCheckbox.frame = NSRect(x: 28, y: 82, width: bounds.width - 56, height: 24)
+        automaticUpdateCheckbox.autoresizingMask = [.width, .minYMargin]
+        addSubview(automaticUpdateCheckbox)
+
         modeLabel.stringValue = "Current mode: \(SettingsStore.modeForNextSwitcher.title)"
         modeLabel.textColor = .secondaryLabelColor
-        modeLabel.frame = NSRect(x: 28, y: 40, width: bounds.width - 56, height: 20)
+        modeLabel.frame = NSRect(x: 28, y: 44, width: bounds.width - 56, height: 20)
         modeLabel.autoresizingMask = [.width, .minYMargin]
         addSubview(modeLabel)
     }
@@ -97,6 +105,10 @@ final class WorkflowSettingsView: NSView {
     @objc private func toggleRememberLastMode() {
         SettingsStore.rememberLastMode = rememberLastModeCheckbox.state == .on
         modeLabel.stringValue = "Current mode: \(SettingsStore.modeForNextSwitcher.title)"
+    }
+
+    @objc private func toggleAutomaticUpdates() {
+        SettingsStore.automaticUpdateDownloads = automaticUpdateCheckbox.state == .on
     }
 
     private func showError(_ message: String) {

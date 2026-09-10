@@ -17,6 +17,7 @@ struct SettingsBackup: Codable {
     let onlyCurrentDisplay: Bool
     let activationShortcut: String
     let holdToPreview: Bool
+    let automaticUpdateDownloads: Bool?
     let rememberLastMode: Bool
     let lastMode: String?
     let windowActionShortcuts: [String: WindowActionShortcut]
@@ -42,6 +43,7 @@ enum SettingsStore {
     static let onlyCurrentDisplayKey = "AltTab.customization.onlyCurrentDisplay"
     static let activationShortcutKey = "AltTab.customization.activationShortcut"
     static let holdToPreviewKey = "AltTab.customization.holdToPreview"
+    static let automaticUpdateDownloadsKey = "AltTab.release.automaticUpdateDownloads"
     static let rememberLastModeKey = "AltTab.workflow.rememberLastMode"
     static let lastModeKey = "AltTab.workflow.lastMode"
     private static let windowActionShortcutPrefix = "AltTab.workflow.windowActionShortcut."
@@ -63,6 +65,7 @@ enum SettingsStore {
             onlyCurrentDisplayKey: false,
             activationShortcutKey: ActivationShortcut.option.rawValue,
             holdToPreviewKey: true,
+            automaticUpdateDownloadsKey: false,
             rememberLastModeKey: true
         ])
     }
@@ -153,6 +156,11 @@ enum SettingsStore {
     static var holdToPreview: Bool {
         get { UserDefaults.standard.bool(forKey: holdToPreviewKey) }
         set { UserDefaults.standard.set(newValue, forKey: holdToPreviewKey) }
+    }
+
+    static var automaticUpdateDownloads: Bool {
+        get { UserDefaults.standard.bool(forKey: automaticUpdateDownloadsKey) }
+        set { UserDefaults.standard.set(newValue, forKey: automaticUpdateDownloadsKey) }
     }
 
     static var rememberLastMode: Bool {
@@ -263,6 +271,7 @@ enum SettingsStore {
             onlyCurrentDisplay: onlyCurrentDisplay,
             activationShortcut: activationShortcut.rawValue,
             holdToPreview: holdToPreview,
+            automaticUpdateDownloads: automaticUpdateDownloads,
             rememberLastMode: rememberLastMode,
             lastMode: lastMode?.rawValue,
             windowActionShortcuts: actionShortcuts,
@@ -292,6 +301,7 @@ enum SettingsStore {
         onlyCurrentDisplay = backup.onlyCurrentDisplay
         activationShortcut = ActivationShortcut(rawValue: backup.activationShortcut) ?? .option
         holdToPreview = backup.holdToPreview
+        automaticUpdateDownloads = backup.automaticUpdateDownloads ?? false
         rememberLastMode = backup.rememberLastMode
         lastMode = backup.lastMode.flatMap(SwitcherContentMode.init(rawValue:))
 

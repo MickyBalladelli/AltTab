@@ -45,7 +45,9 @@ The cask points at the versioned GitHub release DMG and the tap workflow fills i
 
 ## Updates
 
-The menu bar has **Check for Updates...**. AltTab checks the latest GitHub release only when asked, compares versions locally, and opens the signed, notarized DMG when a newer release exists. There is no background telemetry or update service.
+The menu bar has **Check for Updates...**. AltTab checks the latest GitHub release only when asked, compares versions locally, and opens the signed, notarized DMG when a newer release exists. Workflow Settings has an opt-in **Automatically download verified updates** switch. When enabled, AltTab downloads the DMG, checks its SHA-256 checksum, validates the Apple notarization ticket, checks the Developer ID signature and Gatekeeper assessment, then offers to open the verified DMG. There is no background telemetry or update service.
+
+See [RELEASE.md](RELEASE.md) for the release checklist, smoke checks, certificate rotation, and local crash diagnostics.
 
 ## Uninstall
 
@@ -79,4 +81,4 @@ Then launch AltTab and allow it in **System Settings > Privacy & Security > Acce
 - Some windows are missing: check the content mode, current-display filter, minimized-window setting, utility-window setting, and excluded bundle IDs in Settings.
 - The update check fails: open the GitHub Releases page directly and check the network connection.
 - A downloaded DMG is rejected: use the release asset from the official GitHub release and confirm its SHA-256 value with `shasum -a 256 AltTab.dmg`.
-- Use **Diagnostics & Permissions...** from the menu bar to copy local status details. AltTab sends no telemetry.
+- Use **Diagnostics & Permissions...** from the menu bar to copy local status details. Use **Open Crash Diagnostics...** to inspect local crash reports. AltTab sends no telemetry.

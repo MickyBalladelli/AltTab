@@ -81,6 +81,12 @@ final class DiagnosticsView: NSView {
         copyButton.autoresizingMask = [.minYMargin]
         addSubview(copyButton)
 
+        let crashButton = NSButton(title: "Open crash folder", target: self, action: #selector(openCrashDiagnostics))
+        crashButton.bezelStyle = .rounded
+        crashButton.frame = NSRect(x: 392, y: 58, width: 190, height: 28)
+        crashButton.autoresizingMask = [.minXMargin, .minYMargin]
+        addSubview(crashButton)
+
         refresh()
     }
 
@@ -109,6 +115,7 @@ final class DiagnosticsView: NSView {
         Icon cache:              \(profile.iconCacheHits) hits, \(profile.iconCacheMisses) misses
         Thumbnail cache:         \(profile.thumbnailCacheHits) hits, \(profile.thumbnailCacheMisses) misses
         Saved MRU entries:      \(MRUStore.savedIdentifiers.count)
+        Local crash reports:    \(CrashDiagnostics.reportCount)
         """
     }
 
@@ -119,5 +126,9 @@ final class DiagnosticsView: NSView {
     @objc private func copyDiagnostics() {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(detailsLabel.stringValue, forType: .string)
+    }
+
+    @objc private func openCrashDiagnostics() {
+        CrashDiagnostics.openFolder()
     }
 }

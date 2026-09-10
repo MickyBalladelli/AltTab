@@ -68,6 +68,16 @@ jobs:
           xcrun stapler validate build/AltTab.dmg
           shasum -a 256 build/AltTab.dmg > build/AltTab.dmg.sha256
 
+      - name: Run release smoke checks
+        shell: zsh
+        run: |
+          VERSION="${RELEASE_VERSION#v}"
+          CASK_PATH="$RUNNER_TEMP/alt-tab.rb"
+          cp Casks/alt-tab.rb "$CASK_PATH"
+          SHA256="$(awk '{print $1}' build/AltTab.dmg.sha256)"
+          ./scripts/update-cask.sh "$VERSION" "$SHA256" "$CASK_PATH"
+          ./scripts/release-smoke-check.sh build/AltTab.dmg "$CASK_PATH" "$VERSION"
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -80,6 +90,13 @@ jobs:
             build/AltTab.dmg.sha256 \
             --title "AltTab $VERSION" \
             --generate-notes
+
+      - name: Verify published DMG URL
+        shell: zsh
+        run: |
+          VERSION="${RELEASE_VERSION#v}"
+          curl --fail --silent --show-error --location --head --retry 2 \
+            "https://github.com/MickyBalladelli/AltTab/releases/download/v${VERSION}/AltTab.dmg" >/dev/null
 
       - name: Publish Homebrew tap cask
         if: ${{ env.HOMEBREW_TAP_TOKEN != '' }}
