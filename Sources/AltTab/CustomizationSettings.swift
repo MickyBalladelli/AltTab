@@ -54,6 +54,15 @@ enum ActivationShortcut: String, CaseIterable {
         }
     }
 
+    /// Command+Tab is reserved by macOS for the system app switcher and never
+    /// reliably reaches a session event tap, so it cannot drive AltTab.
+    var isSystemReserved: Bool {
+        switch self {
+        case .command, .leftCommand, .rightCommand: return true
+        case .option, .leftOption, .rightOption: return false
+        }
+    }
+
     static let modifierKeyCodes: Set<UInt16> = [54, 55, 58, 61]
 
     func matches(flags: NSEvent.ModifierFlags, pressedKeyCodes: Set<UInt16>) -> Bool {

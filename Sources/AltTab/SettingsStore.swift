@@ -63,7 +63,7 @@ enum SettingsStore {
             accentColorKey: "#0A84FF",
             backgroundBlurKey: true,
             onlyCurrentDisplayKey: false,
-            activationShortcutKey: ActivationShortcut.command.rawValue,
+            activationShortcutKey: ActivationShortcut.option.rawValue,
             holdToPreviewKey: true,
             automaticUpdateDownloadsKey: false,
             rememberLastModeKey: true
@@ -149,7 +149,7 @@ enum SettingsStore {
     }
 
     static var activationShortcut: ActivationShortcut {
-        get { ActivationShortcut(rawValue: UserDefaults.standard.string(forKey: activationShortcutKey) ?? "") ?? .command }
+        get { ActivationShortcut(rawValue: UserDefaults.standard.string(forKey: activationShortcutKey) ?? "") ?? .option }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: activationShortcutKey) }
     }
 
@@ -299,7 +299,7 @@ enum SettingsStore {
         accentColorHex = backup.accentColorHex
         backgroundBlur = backup.backgroundBlur
         onlyCurrentDisplay = backup.onlyCurrentDisplay
-        activationShortcut = ActivationShortcut(rawValue: backup.activationShortcut) ?? .command
+        activationShortcut = ActivationShortcut(rawValue: backup.activationShortcut) ?? .option
         holdToPreview = backup.holdToPreview
         automaticUpdateDownloads = backup.automaticUpdateDownloads ?? false
         rememberLastMode = backup.rememberLastMode

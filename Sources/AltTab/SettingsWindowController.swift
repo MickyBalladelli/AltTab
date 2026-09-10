@@ -299,6 +299,9 @@ final class SettingsView: NSView {
             return
         }
         SettingsStore.activationShortcut = shortcut
+        if shortcut.isSystemReserved {
+            showSystemReservedWarning()
+        }
     }
 
     @objc private func changeSlider(_ sender: NSSlider) {
@@ -351,6 +354,15 @@ final class SettingsView: NSView {
         let alert = NSAlert()
         alert.messageText = "Shortcut conflict"
         alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK")
+        alert.runModal()
+    }
+
+    private func showSystemReservedWarning() {
+        let alert = NSAlert()
+        alert.messageText = "Command-Tab is reserved by macOS"
+        alert.informativeText = "macOS consumes Command-Tab for its own app switcher before AltTab can see it. Use Option-Tab, or change the system shortcut in System Settings > Keyboard > Keyboard Shortcuts."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         alert.runModal()

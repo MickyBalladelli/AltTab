@@ -101,10 +101,15 @@ final class DiagnosticsView: NSView {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Development"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "-"
         let profile = WindowCatalog.lastProfile
+        let shortcut = SettingsStore.activationShortcut
+        let shortcutHint = shortcut.isSystemReserved
+            ? " (\(shortcut.title) is reserved by macOS; use Option-Tab)"
+            : ""
         detailsLabel.stringValue = """
         Version:                 \(version) (build \(build))
         macOS:                  \(ProcessInfo.processInfo.operatingSystemVersionString)
         Accessibility:          \(AccessibilityController.isTrusted ? "Granted" : "Needed")
+        Activation shortcut:    \(shortcut.title)\(shortcutHint)
         VoiceOver:              \(SystemAccessibility.voiceOverEnabled ? "On" : "Off")
         Reduce Motion:          \(SystemAccessibility.reduceMotion ? "On" : "Off")
         Increase Contrast:      \(SystemAccessibility.increaseContrast ? "On" : "Off")

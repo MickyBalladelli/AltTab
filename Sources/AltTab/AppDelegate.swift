@@ -20,9 +20,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         switcher.onAccessibilityLost = { [weak self] in
             self?.recoverAccessibility()
         }
-        switcher.onWindowActivationFailure = { [weak self] in
-            self?.showWindowActivationError()
-        }
         configureMenuBar()
         installKeyboardMonitors()
         installCommandTabEventTap()
@@ -379,15 +376,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         accessibilityOnboarding.showAlertIfNeeded()
     }
 
-    private func showWindowActivationError() {
-        let alert = NSAlert()
-        alert.messageText = "Window is no longer available"
-        alert.informativeText = "The window may have closed or moved while AltTab was open."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "OK")
-        alert.runModal()
-    }
-
     private func showSettingsError(_ message: String) {
         let alert = NSAlert()
         alert.messageText = "Settings backup failed"
@@ -571,7 +559,6 @@ enum ShortcutStore {
 
 final class SwitcherController {
     var onAccessibilityLost: (() -> Void)?
-    var onWindowActivationFailure: (() -> Void)?
     private var state = SwitcherState()
     private var panel: NSPanel?
     private var view: SwitcherView?
@@ -604,7 +591,10 @@ final class SwitcherController {
         loading = true
         holdToPreviewSession = true
         recentSearchIndex = nil
-        WindowCatalog.loadItems(for: mode) { [weak self] loadedItems in
+        // Always build a fresh list when popping up the switcher so closed
+        // windows never appear in the sequence. Cached results can be stale
+        // by the time the user presses the shortcut.
+        WindowCatalog.loadItems(for: mode, forceRefresh: true) { [weak self] loadedItems in
             guard let self, self.loadGeneration == generation else { return }
             self.loading = false
             let orderedItems = MRUStore.order(loadedItems)
@@ -670,13 +660,14 @@ final class SwitcherController {
         let generation = loadGeneration
         loading = true
         holdToPreviewSession = false
-        WindowCatalog.loadItems(for: .windows) { [weak self] loadedItems in
+        WindowCatalog.loadItems(for: .windows, forceRefresh: true) { [weak self] loadedItems in
             guard let self, self.loadGeneration == generation else { return }
             self.loading = false
             let windows = MRUStore.order(loadedItems)
             guard windows.indices.contains(index) else { return }
             guard windows[index].activate() else {
-                self.reportActivationFailure()
+                // Window closed between enumeration and activation: stay silent.
+                self.handleStaleActivation()
                 return
             }
             MRUStore.record(windows[index])
@@ -733,7 +724,8 @@ final class SwitcherController {
             if !state.isVisible {
                 panel?.orderOut(nil)
             }
-            reportActivationFailure()
+            // Stale app/window: prune silently instead of alerting.
+            handleStaleActivation(prunedAlready: true)
             return
         }
         MRUStore.record(item)
@@ -760,7 +752,7 @@ final class SwitcherController {
             }
             guard freshItem.activate() else {
                 self.cancel()
-                self.reportActivationFailure()
+                self.handleStaleActivation(prunedAlready: true)
                 return
             }
 
@@ -922,12 +914,21 @@ final class SwitcherController {
         }
     }
 
-    private func reportActivationFailure() {
-        if AccessibilityController.isTrusted {
-            onWindowActivationFailure?()
-        } else {
-            onAccessibilityLost?()
+    private func handleStaleActivation(prunedAlready: Bool = false) {
+        // Never show a modal when Alt-Tabbing to a window that closed.
+        // Only surface the Accessibility recovery path; stale windows are
+        // pruned silently so the switcher flow is uninterrupted.
+        guard !AccessibilityController.isTrusted else {
+            if !prunedAlready, state.isVisible {
+                state.removeSelected()
+                syncView()
+                if !state.isVisible {
+                    panel?.orderOut(nil)
+                }
+            }
+            return
         }
+        onAccessibilityLost?()
     }
 
     private func announceSelection() {
