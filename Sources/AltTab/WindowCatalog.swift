@@ -193,7 +193,11 @@ final class WindowCatalog {
         }
     }
 
-    static func loadItems(for mode: SwitcherContentMode, completion: @escaping ([SwitcherItem]) -> Void) {
+    static func loadItems(
+        for mode: SwitcherContentMode,
+        forceRefresh: Bool = false,
+        completion: @escaping ([SwitcherItem]) -> Void
+    ) {
         SettingsStore.registerDefaults()
         let settings = catalogSettings()
         let key = cacheKey(for: mode, settings: settings)
@@ -209,7 +213,8 @@ final class WindowCatalog {
                 loadLock.unlock()
                 return
             }
-            if let cachedItems,
+            if !forceRefresh,
+               let cachedItems,
                cachedItems.key == key,
                CFAbsoluteTimeGetCurrent() - cachedItems.createdAt < cacheLifetime {
                 let items = cachedItems.items

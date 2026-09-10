@@ -721,6 +721,12 @@ final class SwitcherController {
         }
         guard let item = state.selectedItem else { cancel(); return }
         let query = state.searchQuery
+
+        if item.window != nil {
+            commitFreshWindow(item, query: query)
+            return
+        }
+
         guard item.activate() else {
             state.removeSelected()
             syncView()
@@ -736,6 +742,46 @@ final class SwitcherController {
         restoreAppProfile()
         syncView()
         panel?.orderOut(nil)
+    }
+
+    private func commitFreshWindow(_ item: SwitcherItem, query: String) {
+        loadGeneration += 1
+        let generation = loadGeneration
+        loading = true
+        holdToPreviewSession = false
+
+        WindowCatalog.loadItems(for: .windows, forceRefresh: true) { [weak self] loadedItems in
+            guard let self, self.loadGeneration == generation else { return }
+            self.loading = false
+
+            guard let freshItem = self.freshWindowItem(matching: item, in: loadedItems) else {
+                self.cancel()
+                return
+            }
+            guard freshItem.activate() else {
+                self.cancel()
+                self.reportActivationFailure()
+                return
+            }
+
+            MRUStore.record(freshItem)
+            SearchHistoryStore.record(query)
+            self.state.cancel()
+            self.restoreAppProfile()
+            self.syncView()
+            self.panel?.orderOut(nil)
+        }
+    }
+
+    private func freshWindowItem(matching item: SwitcherItem, in loadedItems: [SwitcherItem]) -> SwitcherItem? {
+        guard let originalWindow = item.window else { return nil }
+        return loadedItems.first { candidate in
+            guard let candidateWindow = candidate.window else { return false }
+            if candidateWindow.windowID == originalWindow.windowID {
+                return true
+            }
+            return candidate.identifier == item.identifier
+        }
     }
 
     func cancel() {
