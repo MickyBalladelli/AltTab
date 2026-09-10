@@ -63,7 +63,7 @@ enum SettingsStore {
             accentColorKey: "#0A84FF",
             backgroundBlurKey: true,
             onlyCurrentDisplayKey: false,
-            activationShortcutKey: ActivationShortcut.option.rawValue,
+            activationShortcutKey: ActivationShortcut.command.rawValue,
             holdToPreviewKey: true,
             automaticUpdateDownloadsKey: false,
             rememberLastModeKey: true
@@ -149,7 +149,7 @@ enum SettingsStore {
     }
 
     static var activationShortcut: ActivationShortcut {
-        get { ActivationShortcut(rawValue: UserDefaults.standard.string(forKey: activationShortcutKey) ?? "") ?? .option }
+        get { ActivationShortcut(rawValue: UserDefaults.standard.string(forKey: activationShortcutKey) ?? "") ?? .command }
         set { UserDefaults.standard.set(newValue.rawValue, forKey: activationShortcutKey) }
     }
 
@@ -199,6 +199,39 @@ enum SettingsStore {
 
     static func resetWindowActionShortcut(for action: WindowAction) {
         UserDefaults.standard.removeObject(forKey: windowActionShortcutPrefix + action.rawValue)
+    }
+
+    static func replaceWindowActionShortcuts(_ shortcuts: [String: WindowActionShortcut]) throws {
+        var resolved: [WindowAction: WindowActionShortcut] = [:]
+        var actionByShortcut: [WindowActionShortcut: WindowAction] = [:]
+
+        for action in WindowAction.allCases {
+            let shortcut = shortcuts[action.rawValue] ?? .defaultShortcut(for: action)
+            if shortcut.keyCode == 48,
+               shortcut.modifiers.contains(activationShortcut.modifierFlag) {
+                throw NSError(
+                    domain: "AltTabSettings",
+                    code: 2,
+                    userInfo: [NSLocalizedDescriptionKey: "The shortcut for \(action.title) conflicts with AltTab's activation shortcut."]
+                )
+            }
+            if let otherAction = actionByShortcut[shortcut] {
+                throw NSError(
+                    domain: "AltTabSettings",
+                    code: 3,
+                    userInfo: [NSLocalizedDescriptionKey: "The shortcut for \(action.title) is also assigned to \(otherAction.title)."]
+                )
+            }
+            resolved[action] = shortcut
+            actionByShortcut[shortcut] = action
+        }
+
+        let encoded = try Dictionary(uniqueKeysWithValues: resolved.map { action, shortcut in
+            (action, try JSONEncoder().encode(shortcut))
+        })
+        for action in WindowAction.allCases {
+            UserDefaults.standard.set(encoded[action], forKey: windowActionShortcutPrefix + action.rawValue)
+        }
     }
 
     static func windowActionShortcutConflict(_ shortcut: WindowActionShortcut, for action: WindowAction) -> String? {
@@ -299,20 +332,13 @@ enum SettingsStore {
         accentColorHex = backup.accentColorHex
         backgroundBlur = backup.backgroundBlur
         onlyCurrentDisplay = backup.onlyCurrentDisplay
-        activationShortcut = ActivationShortcut(rawValue: backup.activationShortcut) ?? .option
+        activationShortcut = ActivationShortcut(rawValue: backup.activationShortcut) ?? .command
         holdToPreview = backup.holdToPreview
         automaticUpdateDownloads = backup.automaticUpdateDownloads ?? false
         rememberLastMode = backup.rememberLastMode
         lastMode = backup.lastMode.flatMap(SwitcherContentMode.init(rawValue:))
 
-        for action in WindowAction.allCases {
-            resetWindowActionShortcut(for: action)
-        }
-        for action in WindowAction.allCases {
-            if let shortcut = backup.windowActionShortcuts[action.rawValue] {
-                _ = setWindowActionShortcut(shortcut, for: action)
-            }
-        }
+        try replaceWindowActionShortcuts(backup.windowActionShortcuts)
         try ShortcutStore.importBindings(backup.quickSlotBindings)
         SearchHistoryStore.replace(with: backup.recentSearchTerms)
         AppProfileStore.replaceAll(backup.appProfiles)

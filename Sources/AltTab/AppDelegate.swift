@@ -149,7 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     switcher.commit()
                 }
-                return nil
+                // The Tab key-down is the event that must be consumed. Let the
+                // modifier-up event continue so other apps do not observe a
+                // permanently held Command or Option key.
+                return Unmanaged.passUnretained(event)
             }
             return Unmanaged.passUnretained(event)
         }
@@ -193,7 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 } else {
                     switcher.commit()
                 }
-                return true
+                return false
             }
             return false
         }
@@ -401,10 +404,11 @@ enum ShortcutStore {
 
     enum Error: LocalizedError {
         case conflict(String)
+        case invalidBinding(String)
 
         var errorDescription: String? {
             switch self {
-            case .conflict(let message): return message
+            case .conflict(let message), .invalidBinding(let message): return message
             }
         }
     }
@@ -539,15 +543,49 @@ enum ShortcutStore {
 
     static func importBindings(_ data: Data) throws {
         let bindings = try JSONDecoder().decode([Binding].self, from: data)
-        for binding in bindings where (1...12).contains(binding.slot) {
-            guard setTrigger(keyCode: binding.keyCode, modifiers: binding.modifiers, for: binding.slot) else {
-                let reason = conflict(for: binding.slot, keyCode: binding.keyCode, modifiers: binding.modifiers) ?? "trigger conflict"
-                throw Error.conflict("Could not import slot F\(binding.slot): \(reason)")
+        var bindingsBySlot: [Int: Binding] = [:]
+        var activeTriggers: [String: Int] = [:]
+        let activationModifiers = SettingsStore.activationShortcut.modifierFlag.rawValue
+
+        for binding in bindings {
+            guard (1...12).contains(binding.slot) else {
+                throw Error.invalidBinding("Quick slot F\(binding.slot) is outside the supported F1-F12 range.")
             }
-            guard setBundleIdentifier(binding.bundleIdentifier, for: binding.slot) else {
-                let trigger = trigger(for: binding.slot)
-                let reason = conflict(for: binding.slot, keyCode: trigger.keyCode, modifiers: trigger.modifiers) ?? "trigger conflict"
-                throw Error.conflict("Could not import slot F\(binding.slot): \(reason)")
+            guard bindingsBySlot[binding.slot] == nil else {
+                throw Error.invalidBinding("The import contains more than one binding for F\(binding.slot).")
+            }
+            bindingsBySlot[binding.slot] = binding
+
+            guard let bundleIdentifier = binding.bundleIdentifier,
+                  !bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            if binding.keyCode == 48 && binding.modifiers == activationModifiers {
+                throw Error.conflict("Could not import slot F\(binding.slot): this trigger conflicts with AltTab's activation shortcut.")
+            }
+            let triggerKey = "\(binding.keyCode):\(binding.modifiers)"
+            if let otherSlot = activeTriggers[triggerKey] {
+                throw Error.conflict("Could not import slot F\(binding.slot): this trigger is already assigned to slot F\(otherSlot).")
+            }
+            activeTriggers[triggerKey] = binding.slot
+        }
+
+        // Validate the complete import before replacing anything so swaps work
+        // and a malformed file cannot leave half of the slots updated.
+        for slot in 1...12 {
+            let binding = bindingsBySlot[slot]
+            let baseKey = keyPrefix + "\(slot)"
+            if let bundleIdentifier = binding?.bundleIdentifier?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !bundleIdentifier.isEmpty {
+                UserDefaults.standard.set(bundleIdentifier, forKey: baseKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: baseKey)
+            }
+
+            if let binding {
+                UserDefaults.standard.set(Int(binding.keyCode), forKey: baseKey + keyCodeSuffix)
+                UserDefaults.standard.set(Int(binding.modifiers), forKey: baseKey + modifiersSuffix)
+            } else {
+                UserDefaults.standard.removeObject(forKey: baseKey + keyCodeSuffix)
+                UserDefaults.standard.removeObject(forKey: baseKey + modifiersSuffix)
             }
         }
     }
@@ -705,6 +743,10 @@ final class SwitcherController {
         return index
     }
 
+    static func refreshMode(for item: SwitcherItem) -> SwitcherContentMode {
+        item.kind
+    }
+
     func commit() {
         guard !loading else {
             cancel()
@@ -742,7 +784,7 @@ final class SwitcherController {
         loading = true
         holdToPreviewSession = false
 
-        WindowCatalog.loadItems(for: .windows, forceRefresh: true) { [weak self] loadedItems in
+        WindowCatalog.loadItems(for: Self.refreshMode(for: item), forceRefresh: true) { [weak self] loadedItems in
             guard let self, self.loadGeneration == generation else { return }
             self.loading = false
 

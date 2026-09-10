@@ -19,7 +19,7 @@ enum WindowAction: String, CaseIterable, Equatable, Hashable {
     }
 }
 
-struct WindowActionShortcut: Codable, Equatable {
+struct WindowActionShortcut: Codable, Equatable, Hashable {
     let keyCode: UInt16
     let modifierRawValue: UInt
 

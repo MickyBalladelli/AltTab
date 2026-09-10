@@ -468,7 +468,7 @@ final class WindowCatalog {
                 thumbnailCacheMisses += 1
             }
             let isFullScreen = displaySnapshot.displays.contains { display in
-                abs(windowFrame.width - display.bounds.width) < 4 && abs(windowFrame.height - display.bounds.height) < 4
+                framesMatch(windowFrame, display.bounds)
             }
             return WindowItem(
                 windowID: windowID,
@@ -577,10 +577,18 @@ final class WindowCatalog {
         let displays = screens.enumerated().map { index, screen in
             DisplayInfo(
                 name: screen.localizedName.isEmpty ? "Display \(index + 1)" : screen.localizedName,
-                bounds: screen.frame
+                bounds: displayBounds(for: screen)
             )
         }
-        return DisplaySnapshot(displays: displays, currentScreenBounds: NSScreen.main?.frame)
+        let pointerScreen = screens.first { $0.frame.contains(NSEvent.mouseLocation) } ?? NSScreen.main
+        return DisplaySnapshot(displays: displays, currentScreenBounds: pointerScreen.map { displayBounds(for: $0) })
+    }
+
+    private static func displayBounds(for screen: NSScreen) -> CGRect {
+        guard let displayNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return screen.frame
+        }
+        return CGDisplayBounds(CGDirectDisplayID(displayNumber.uint32Value))
     }
 
     private static func displayName(for windowFrame: CGRect, in displays: [DisplayInfo]) -> String {

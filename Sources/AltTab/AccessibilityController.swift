@@ -29,19 +29,11 @@ final class AccessibilityOnboardingController {
 
     func presentIfNeeded() {
         guard !AccessibilityController.isTrusted else { return }
-        AccessibilityController.requestPermissionPrompt()
-        DispatchQueue.main.async { [weak self] in
-            self?.showAlertIfNeeded()
-        }
+        _ = AccessibilityController.requestPermissionPrompt()
+        startPolling()
     }
 
     func showAlertIfNeeded() {
-        guard !AccessibilityController.isTrusted else {
-            stopPolling()
-            return
-        }
-
-        _ = AccessibilityController.requestPermissionPrompt()
         guard !AccessibilityController.isTrusted else {
             stopPolling()
             return

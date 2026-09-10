@@ -147,6 +147,82 @@ final class ShortcutStoreTests: XCTestCase {
 
         XCTAssertEqual(event.flatMap(ShortcutStore.slot), 1)
     }
+
+    func testImportReplacesExistingBindingsWithoutSwapConflicts() throws {
+        ShortcutStore.setTrigger(keyCode: 97, modifiers: NSEvent.ModifierFlags.command.rawValue, for: 1)
+        ShortcutStore.setBundleIdentifier("com.example.First", for: 1)
+        ShortcutStore.setTrigger(keyCode: 98, modifiers: NSEvent.ModifierFlags.command.rawValue, for: 2)
+        ShortcutStore.setBundleIdentifier("com.example.Second", for: 2)
+        let exported = try ShortcutStore.exportBindings()
+
+        ShortcutStore.clear(slot: 1)
+        ShortcutStore.clear(slot: 2)
+        ShortcutStore.setTrigger(keyCode: 98, modifiers: NSEvent.ModifierFlags.command.rawValue, for: 1)
+        ShortcutStore.setBundleIdentifier("com.example.First", for: 1)
+        ShortcutStore.setTrigger(keyCode: 97, modifiers: NSEvent.ModifierFlags.command.rawValue, for: 2)
+        ShortcutStore.setBundleIdentifier("com.example.Second", for: 2)
+
+        XCTAssertNoThrow(try ShortcutStore.importBindings(exported))
+        XCTAssertEqual(ShortcutStore.trigger(for: 1).keyCode, 97)
+        XCTAssertEqual(ShortcutStore.trigger(for: 2).keyCode, 98)
+        XCTAssertEqual(ShortcutStore.bundleIdentifier(for: 1), "com.example.First")
+        XCTAssertEqual(ShortcutStore.bundleIdentifier(for: 2), "com.example.Second")
+    }
+
+    func testInvalidImportDoesNotPartiallyReplaceBindings() throws {
+        ShortcutStore.setTrigger(keyCode: 97, modifiers: NSEvent.ModifierFlags.command.rawValue, for: 1)
+        ShortcutStore.setBundleIdentifier("com.example.Original", for: 1)
+        let command = NSEvent.ModifierFlags.command.rawValue
+        let invalidImport = Data("""
+        [
+          {"slot": 1, "bundleIdentifier": "com.example.Replacement", "keyCode": 98, "modifiers": \(command)},
+          {"slot": 13, "bundleIdentifier": "com.example.Invalid", "keyCode": 99, "modifiers": \(command)}
+        ]
+        """.utf8)
+
+        XCTAssertThrowsError(try ShortcutStore.importBindings(invalidImport))
+        XCTAssertEqual(ShortcutStore.trigger(for: 1).keyCode, 97)
+        XCTAssertEqual(ShortcutStore.bundleIdentifier(for: 1), "com.example.Original")
+    }
+}
+
+final class SettingsStoreTests: XCTestCase {
+    override func tearDown() {
+        for action in WindowAction.allCases {
+            SettingsStore.resetWindowActionShortcut(for: action)
+        }
+        super.tearDown()
+    }
+
+    func testCommandTabIsTheDefaultActivationShortcut() {
+        let defaults = UserDefaults.standard
+        let originalValue = defaults.object(forKey: SettingsStore.activationShortcutKey)
+        defer {
+            if let originalValue {
+                defaults.set(originalValue, forKey: SettingsStore.activationShortcutKey)
+            } else {
+                defaults.removeObject(forKey: SettingsStore.activationShortcutKey)
+            }
+        }
+
+        defaults.removeObject(forKey: SettingsStore.activationShortcutKey)
+        SettingsStore.registerDefaults()
+        XCTAssertEqual(SettingsStore.activationShortcut, .command)
+    }
+
+    func testReplacingWindowActionShortcutsSupportsSwappedBindings() throws {
+        let minimize = WindowActionShortcut.defaultShortcut(for: .minimize)
+        let close = WindowActionShortcut.defaultShortcut(for: .close)
+        var shortcuts = Dictionary(uniqueKeysWithValues: WindowAction.allCases.map {
+            ($0.rawValue, WindowActionShortcut.defaultShortcut(for: $0))
+        })
+        shortcuts[WindowAction.minimize.rawValue] = close
+        shortcuts[WindowAction.close.rawValue] = minimize
+
+        XCTAssertNoThrow(try SettingsStore.replaceWindowActionShortcuts(shortcuts))
+        XCTAssertEqual(SettingsStore.windowActionShortcut(for: .minimize), close)
+        XCTAssertEqual(SettingsStore.windowActionShortcut(for: .close), minimize)
+    }
 }
 
 final class SwitcherUITests: XCTestCase {
@@ -198,9 +274,22 @@ final class SwitcherUITests: XCTestCase {
         XCTAssertEqual(view.items[view.selectedIndex].window?.windowID, 2)
         XCTAssertGreaterThan(SwitcherView.preferredSize(for: view.items.count).height, 0)
     }
+
+    func testWindowRefreshPreservesTheSelectedItemsMode() {
+        let space = makeItem(identifier: "space:2", title: "Space 2", windowID: 2, kind: .spaces)
+        let fullScreenApp = makeItem(identifier: "fullscreen:app", title: "Full screen", windowID: 3, kind: .fullScreenApps)
+
+        XCTAssertEqual(SwitcherController.refreshMode(for: space), .spaces)
+        XCTAssertEqual(SwitcherController.refreshMode(for: fullScreenApp), .fullScreenApps)
+    }
 }
 
-private func makeItem(identifier: String, title: String, windowID: CGWindowID) -> SwitcherItem {
+private func makeItem(
+    identifier: String,
+    title: String,
+    windowID: CGWindowID,
+    kind: SwitcherContentMode = .windows
+) -> SwitcherItem {
     let app = NSRunningApplication.current
     let image = NSImage(size: NSSize(width: 16, height: 16))
     let window = WindowItem(
@@ -221,6 +310,6 @@ private func makeItem(identifier: String, title: String, windowID: CGWindowID) -
         app: app,
         window: window,
         icon: image,
-        kind: .windows
+        kind: kind
     )
 }
