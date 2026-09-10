@@ -1,5 +1,6 @@
 .build/
 build/
+Trash/
 DerivedData/
 .swiftpm/
 *.xcodeproj/
@@ -10,3 +11,5 @@ DerivedData/
 *.p12
 *.cer
 *.mobileprovision
+*.dmg
+*.dmg.sha256
