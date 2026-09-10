@@ -130,7 +130,7 @@ final class SwitcherView: NSView {
             )
         }
 
-        let hint = "Option-Tab cycle    Option-↑↓ recent    Arrows / 1-9 select    Return switch    Esc cancel"
+        let hint = "Command-Tab cycle    Option-↑↓ recent    Arrows / 1-9 select    Return switch    Esc cancel"
         (hint as NSString).draw(at: NSPoint(x: 18, y: 9), withAttributes: [.font: NSFont.systemFont(ofSize: 10), .foregroundColor: NSColor.secondaryLabelColor])
     }
 
