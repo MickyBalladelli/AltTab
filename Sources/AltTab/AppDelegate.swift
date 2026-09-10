@@ -84,7 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             | (CGEventMask(1) << CGEventType.tapDisabledByUserInput.rawValue)
         let userInfo = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
         guard let eventTap = CGEvent.tapCreate(
-            tap: .cghidEventTap,
+            // HID taps are restricted to root. Session taps are the supported
+            // choice for an Accessibility-enabled app and still run before
+            // events are delivered to the active application.
+            tap: .cgSessionEventTap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: eventMask,

@@ -7,7 +7,17 @@ APP_DIR="$BUILD_DIR/AltTab.app"
 TRASH_DIR="$PROJECT_ROOT/Trash"
 VERSION="${ALT_TAB_VERSION:-0.1.0}"
 BUILD_NUMBER="${ALT_TAB_BUILD_NUMBER:-$(date +%Y%m%d%H%M%S)}"
-SIGNING_IDENTITY="${ALT_TAB_SIGNING_IDENTITY:--}"
+SIGNING_IDENTITY="${ALT_TAB_SIGNING_IDENTITY:-}"
+
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="$(security find-identity -v -p codesigning \
+    | sed -n 's/.*"\(Apple Development:.*\)"/\1/p' \
+    | head -n 1)"
+fi
+
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="-"
+fi
 
 cd "$PROJECT_ROOT"
 swift build -c release
@@ -31,4 +41,4 @@ else
   codesign --force --deep --options runtime --timestamp --sign "$SIGNING_IDENTITY" "$APP_DIR" >/dev/null
 fi
 codesign --verify --deep --strict "$APP_DIR"
-printf 'Created %s (%s, build %s)\n' "$APP_DIR" "$VERSION" "$BUILD_NUMBER"
+printf 'Created %s (%s, build %s, signer %s)\n' "$APP_DIR" "$VERSION" "$BUILD_NUMBER" "$SIGNING_IDENTITY"

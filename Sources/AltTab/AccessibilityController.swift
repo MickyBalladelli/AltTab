@@ -6,11 +6,16 @@ enum AccessibilityController {
         AXIsProcessTrusted()
     }
 
-    static func requestPermissionPrompt() {
+    static var applicationPath: String {
+        Bundle.main.bundleURL.path
+    }
+
+    @discardableResult
+    static func requestPermissionPrompt() -> Bool {
         let options = [
             kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true
         ] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
+        return AXIsProcessTrustedWithOptions(options)
     }
 
     static func openSystemSettings() {
@@ -36,9 +41,15 @@ final class AccessibilityOnboardingController {
             return
         }
 
+        _ = AccessibilityController.requestPermissionPrompt()
+        guard !AccessibilityController.isTrusted else {
+            stopPolling()
+            return
+        }
+
         let alert = NSAlert()
         alert.messageText = "AltTab needs Accessibility access"
-        alert.informativeText = "AltTab uses macOS Accessibility access to read windows and raise the exact window you select."
+        alert.informativeText = "Turn on AltTab for this exact app in System Settings.\n\n" + AccessibilityController.applicationPath
         alert.alertStyle = .informational
         alert.addButton(withTitle: "Open System Settings")
         alert.addButton(withTitle: "Later")
