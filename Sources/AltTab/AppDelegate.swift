@@ -1,4 +1,5 @@
 import AppKit
+import CoreGraphics
 import UniformTypeIdentifiers
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -8,6 +9,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var globalMonitor: Any?
     private var localMonitor: Any?
     private var pressedModifierKeyCodes = Set<UInt16>()
+    private var commandTabEventTap: CFMachPort?
+    private var commandTabEventSource: CFRunLoopSource?
+    private var commandTabRetryTimer: Timer?
     private let commandPalette = CommandPaletteWindowController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -21,12 +25,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         configureMenuBar()
         installKeyboardMonitors()
+        installCommandTabEventTap()
         accessibilityOnboarding.presentIfNeeded()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         if let globalMonitor { NSEvent.removeMonitor(globalMonitor) }
         if let localMonitor { NSEvent.removeMonitor(localMonitor) }
+        commandTabRetryTimer?.invalidate()
+        if let commandTabEventSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), commandTabEventSource, .commonModes)
+        }
+        if let commandTabEventTap {
+            CGEvent.tapEnable(tap: commandTabEventTap, enable: false)
+            CFMachPortInvalidate(commandTabEventTap)
+        }
     }
 
     private func configureMenuBar() {
@@ -60,6 +73,110 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
             self?.handle(event) == true ? nil : event
         }
+    }
+
+    private func installCommandTabEventTap() {
+        guard commandTabEventTap == nil else { return }
+
+        let eventMask = (CGEventMask(1) << CGEventType.keyDown.rawValue)
+            | (CGEventMask(1) << CGEventType.flagsChanged.rawValue)
+            | (CGEventMask(1) << CGEventType.tapDisabledByTimeout.rawValue)
+            | (CGEventMask(1) << CGEventType.tapDisabledByUserInput.rawValue)
+        let userInfo = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
+        guard let eventTap = CGEvent.tapCreate(
+            tap: .cghidEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: eventMask,
+            callback: Self.commandTabEventTapCallback,
+            userInfo: userInfo
+        ) else {
+            if commandTabRetryTimer == nil {
+                commandTabRetryTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] timer in
+                    guard let self else {
+                        timer.invalidate()
+                        return
+                    }
+                    self.installCommandTabEventTap()
+                    if self.commandTabEventTap != nil {
+                        timer.invalidate()
+                        self.commandTabRetryTimer = nil
+                    }
+                }
+            }
+            return
+        }
+
+        commandTabEventTap = eventTap
+        commandTabEventSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0)
+        if let commandTabEventSource {
+            CFRunLoopAddSource(CFRunLoopGetMain(), commandTabEventSource, .commonModes)
+        }
+        CGEvent.tapEnable(tap: eventTap, enable: true)
+        commandTabRetryTimer?.invalidate()
+        commandTabRetryTimer = nil
+    }
+
+    private static let commandTabEventTapCallback: CGEventTapCallBack = { _, type, event, userInfo in
+        guard let userInfo else { return Unmanaged.passUnretained(event) }
+        let appDelegate = Unmanaged<AppDelegate>.fromOpaque(userInfo).takeUnretainedValue()
+        return appDelegate.handleCommandTabEvent(type: type, event: event)
+    }
+
+    private func handleCommandTabEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let commandTabEventTap {
+                CGEvent.tapEnable(tap: commandTabEventTap, enable: true)
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        if type == .flagsChanged {
+            let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+            let wasPressed = pressedModifierKeyCodes.contains(keyCode)
+            let modifiers = NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
+            let isCommandActivation = SettingsStore.activationShortcut.modifierFlag == .command
+            updateModifierState(keyCode: keyCode, flags: event.flags)
+            if wasPressed,
+               isCommandActivation,
+               switcher.isActive,
+               switcher.shouldCommitOnModifierRelease,
+               SettingsStore.holdToPreview,
+               ActivationShortcut.modifierKeyCodes.contains(keyCode),
+               !SettingsStore.activationShortcut.matches(flags: modifiers, pressedKeyCodes: pressedModifierKeyCodes) {
+                if switcher.isLoading {
+                    switcher.cancel()
+                } else {
+                    switcher.commit()
+                }
+                return nil
+            }
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard type == .keyDown,
+              event.getIntegerValueField(.keyboardEventKeycode) == 48 else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        let modifiers = NSEvent.ModifierFlags(rawValue: UInt(event.flags.rawValue))
+        guard SettingsStore.activationShortcut.matches(flags: modifiers, pressedKeyCodes: pressedModifierKeyCodes) else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        if switcher.isLoading {
+            return nil
+        }
+        if switcher.isVisible {
+            if modifiers.contains(.shift) {
+                switcher.previous()
+            } else {
+                switcher.advance()
+            }
+        } else {
+            beginSwitcher()
+        }
+        return nil
     }
 
     @discardableResult
@@ -180,6 +297,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             pressedModifierKeyCodes.insert(event.keyCode)
         } else {
             pressedModifierKeyCodes.remove(event.keyCode)
+        }
+    }
+
+    private func updateModifierState(keyCode: UInt16, flags: CGEventFlags) {
+        let modifierFlag: CGEventFlags
+        switch keyCode {
+        case 58, 61:
+            modifierFlag = .maskAlternate
+        case 54, 55:
+            modifierFlag = .maskCommand
+        default:
+            return
+        }
+
+        if flags.contains(modifierFlag) {
+            pressedModifierKeyCodes.insert(keyCode)
+        } else {
+            pressedModifierKeyCodes.remove(keyCode)
         }
     }
 
