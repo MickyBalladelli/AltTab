@@ -91,7 +91,7 @@ final class MRUStoreTests: XCTestCase {
 
 final class ShortcutStoreTests: XCTestCase {
     private let shortcutKeyPrefix = "AltTab.quickSlot."
-    private static let stateLockPath = "/tmp/AltTabShortcutStoreTests.lock"
+    private static let stateLockPath = "/tmp/AltTabUserDefaultsTests.lock"
     private var stateLockDescriptor: Int32 = -1
     private var originalValues: [String: Any] = [:]
 
@@ -204,9 +204,32 @@ final class ShortcutStoreTests: XCTestCase {
 }
 
 final class SettingsStoreTests: XCTestCase {
+    private static let stateLockPath = "/tmp/AltTabUserDefaultsTests.lock"
+    private var stateLockDescriptor: Int32 = -1
+
+    override func setUp() {
+        super.setUp()
+        stateLockDescriptor = open(Self.stateLockPath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        guard stateLockDescriptor >= 0 else {
+            XCTFail("Could not create the settings test lock")
+            return
+        }
+        guard flock(stateLockDescriptor, LOCK_EX) == 0 else {
+            close(stateLockDescriptor)
+            stateLockDescriptor = -1
+            XCTFail("Could not acquire the settings test lock")
+            return
+        }
+    }
+
     override func tearDown() {
-        for action in WindowAction.allCases {
-            SettingsStore.resetWindowActionShortcut(for: action)
+        if stateLockDescriptor >= 0 {
+            for action in WindowAction.allCases {
+                SettingsStore.resetWindowActionShortcut(for: action)
+            }
+            _ = flock(stateLockDescriptor, LOCK_UN)
+            close(stateLockDescriptor)
+            stateLockDescriptor = -1
         }
         super.tearDown()
     }
